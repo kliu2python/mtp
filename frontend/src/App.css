@@ -5,3 +5,30 @@
 .site-layout .site-layout-background {
   background: #fff;
 }
+
+.ssh-terminal-wrapper {
+  position: relative;
+  height: 420px;
+  background: #1f1f1f;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #303030;
+}
+
+.ssh-terminal {
+  height: 100%;
+}
+
+.ssh-terminal-wrapper .xterm-viewport {
+  overflow-y: auto;
+}
+
+.ssh-terminal-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10;
+}

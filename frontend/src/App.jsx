@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import {
   Layout,
@@ -20,7 +20,8 @@ import {
   Drawer,
   Spin,
   Typography,
-  Popconfirm
+  Popconfirm,
+  Alert
 } from 'antd';
 import {
   DashboardOutlined,
@@ -37,6 +38,9 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import 'xterm/css/xterm.css';
 
 const { Header, Content, Sider } = Layout;
 
@@ -157,6 +161,12 @@ const VMs = () => {
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metrics, setMetrics] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [sshConnecting, setSshConnecting] = useState(false);
+  const [sshError, setSshError] = useState(null);
+  const sshTerminalRef = useRef(null);
+  const sshTerminalInstanceRef = useRef(null);
+  const sshFitAddonRef = useRef(null);
+  const sshSocketRef = useRef(null);
 
   useEffect(() => {
     fetchVMs();
@@ -261,6 +271,8 @@ const VMs = () => {
 
   const openSshModal = (vm) => {
     setSelectedVm(vm);
+    setSshError(null);
+    setSshConnecting(false);
     setSshModalOpen(true);
   };
 
@@ -269,11 +281,167 @@ const VMs = () => {
     ? `ssh ${selectedVm.ssh_username}@${selectedVm.ip_address}`
     : 'No SSH connection details available for this VM yet.';
 
-  const handleLaunchSsh = () => {
-    if (hasSshDetails) {
-      window.open(`ssh://${selectedVm.ssh_username}@${selectedVm.ip_address}`, '_blank');
+  const buildSshWebSocketUrl = (vmId) => {
+    try {
+      const apiUrl = new URL(API_URL);
+      const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      const basePath = apiUrl.pathname.replace(/\/$/, '');
+      return `${protocol}//${apiUrl.host}${basePath}/api/vms/${vmId}/ssh`;
+    } catch (error) {
+      const isSecure = window.location.protocol === 'https:';
+      return `${isSecure ? 'wss:' : 'ws:'}//${window.location.host}/api/vms/${vmId}/ssh`;
     }
   };
+
+  const closeSshModal = () => {
+    setSshModalOpen(false);
+    setSshConnecting(false);
+  };
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const closeActiveSocket = () => {
+      if (sshSocketRef.current) {
+        const state = sshSocketRef.current.readyState;
+        if (state === 0 || state === 1) {
+          sshSocketRef.current.close();
+        }
+        sshSocketRef.current = null;
+      }
+    };
+
+    if (!sshModalOpen) {
+      setSshConnecting(false);
+      setSshError(null);
+      closeActiveSocket();
+      if (sshTerminalInstanceRef.current) {
+        sshTerminalInstanceRef.current.dispose();
+        sshTerminalInstanceRef.current = null;
+      }
+      sshFitAddonRef.current = null;
+      if (sshTerminalRef.current) {
+        sshTerminalRef.current.innerHTML = '';
+      }
+      return;
+    }
+
+    if (!selectedVm || !hasSshDetails) {
+      return;
+    }
+
+    setSshError(null);
+    setSshConnecting(true);
+
+    const terminal = new Terminal({
+      cursorBlink: true,
+      convertEol: true,
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: 14,
+      theme: {
+        background: '#1f1f1f',
+      },
+    });
+    sshTerminalInstanceRef.current = terminal;
+
+    const fitAddon = new FitAddon();
+    sshFitAddonRef.current = fitAddon;
+    terminal.loadAddon(fitAddon);
+
+    const container = sshTerminalRef.current;
+    if (container) {
+      container.innerHTML = '';
+      terminal.open(container);
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit();
+        } catch (error) {
+          // Ignore fit errors caused by hidden container transitions
+        }
+      });
+    }
+
+    const handleResize = () => {
+      if (sshFitAddonRef.current) {
+        try {
+          sshFitAddonRef.current.fit();
+        } catch (error) {
+          // ignore fit errors
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    const socket = new WebSocket(buildSshWebSocketUrl(selectedVm.id));
+    sshSocketRef.current = socket;
+    const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+
+    const dataDisposable = terminal.onData((data) => {
+      if (sshSocketRef.current && sshSocketRef.current.readyState === WebSocket.OPEN) {
+        sshSocketRef.current.send(data);
+      }
+    });
+
+    socket.onopen = () => {
+      setSshConnecting(false);
+      handleResize();
+    };
+
+    socket.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        terminal.write(event.data);
+      } else if (event.data instanceof ArrayBuffer) {
+        if (textDecoder) {
+          terminal.write(textDecoder.decode(event.data));
+        } else {
+          const bytes = new Uint8Array(event.data);
+          let text = '';
+          for (let i = 0; i < bytes.length; i += 1024) {
+            const chunk = bytes.subarray(i, i + 1024);
+            text += String.fromCharCode(...chunk);
+          }
+          terminal.write(text);
+        }
+      }
+    };
+
+    socket.onerror = () => {
+      setSshConnecting(false);
+      setSshError('Failed to establish SSH connection. Please verify the VM credentials and network access.');
+      closeActiveSocket();
+    };
+
+    socket.onclose = (event) => {
+      setSshConnecting(false);
+      if (event.code !== 1000) {
+        setSshError(event.reason || 'SSH session closed unexpectedly.');
+      }
+      if (terminal) {
+        const reasonText = event.reason ? ` (${event.reason})` : '';
+        terminal.write(`\r\nConnection closed [code ${event.code}]${reasonText}.\r\n`);
+      }
+      if (sshSocketRef.current === socket) {
+        sshSocketRef.current = null;
+      }
+    };
+
+    return () => {
+      dataDisposable.dispose();
+      window.removeEventListener('resize', handleResize);
+      closeActiveSocket();
+      if (sshTerminalInstanceRef.current) {
+        sshTerminalInstanceRef.current.dispose();
+        sshTerminalInstanceRef.current = null;
+      }
+      sshFitAddonRef.current = null;
+      if (sshTerminalRef.current) {
+        sshTerminalRef.current.innerHTML = '';
+      }
+    };
+  }, [sshModalOpen, selectedVm, hasSshDetails]);
 
   const openLogsDrawer = async (vm) => {
     setSelectedVm(vm);
@@ -539,36 +707,49 @@ const VMs = () => {
       <Modal
         title={`SSH Console${selectedVm ? ` - ${selectedVm.name}` : ''}`}
         open={sshModalOpen}
-        onOk={() => {
-          setSshModalOpen(false);
-        }}
-        onCancel={() => setSshModalOpen(false)}
-        okText="Close"
-        footer={[
-          <Button key="launch" type="primary" onClick={handleLaunchSsh} disabled={!hasSshDetails}>
-            Open SSH Client
-          </Button>,
-          <Button key="close" onClick={() => setSshModalOpen(false)}>
-            Close
-          </Button>
-        ]}
+        onCancel={closeSshModal}
+        footer={[<Button key="close" onClick={closeSshModal}>Close</Button>]}
+        width={820}
+        destroyOnClose={false}
+        maskClosable={false}
       >
         {hasSshDetails ? (
           <>
-            <Typography.Paragraph copyable>{sshCommand}</Typography.Paragraph>
-            {selectedVm?.ssh_password ? (
-              <Typography.Paragraph copyable>Password: {selectedVm.ssh_password}</Typography.Paragraph>
-            ) : (
-              <Typography.Text type="secondary">No password saved for this VM.</Typography.Text>
+            {sshError && (
+              <Alert type="error" message={sshError} showIcon style={{ marginBottom: 16 }} />
             )}
+            {selectedVm?.ssh_password ? (
+              <Typography.Paragraph copyable>
+                Password: {selectedVm.ssh_password}
+              </Typography.Paragraph>
+            ) : (
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                No password saved for this VM. Ensure key-based access is configured if required.
+              </Typography.Text>
+            )}
+            <div className="ssh-terminal-wrapper">
+              <div ref={sshTerminalRef} className="ssh-terminal" />
+              {sshConnecting && (
+                <div className="ssh-terminal-overlay">
+                  <Space direction="vertical" align="center">
+                    <Spin size="large" />
+                    <Typography.Text style={{ color: '#fff' }}>Connecting…</Typography.Text>
+                  </Space>
+                </div>
+              )}
+            </div>
+            <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
+              This console is powered by an in-browser SSH client. Closing the modal will terminate the SSH session.
+            </Typography.Paragraph>
           </>
         ) : (
-          <Typography.Text type="secondary">{sshCommand}</Typography.Text>
+          <>
+            <Typography.Paragraph copyable>{sshCommand}</Typography.Paragraph>
+            <Typography.Text type="secondary">
+              Provide SSH credentials for this VM to enable the embedded console.
+            </Typography.Text>
+          </>
         )}
-        <Typography.Text type="secondary">
-          Use the command above in your preferred terminal. Opening the SSH client requires an SSH handler configured on your
-          device.
-        </Typography.Text>
       </Modal>
 
       <Drawer
