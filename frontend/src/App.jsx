@@ -45,6 +45,7 @@ import 'xterm/css/xterm.css';
 const { Header, Content, Sider } = Layout;
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://10.160.24.60:8000';
+const DEVICE_NODES_API_BASE_URL = 'http://10.160.13.118:8090';
 
 // Dashboard Component
 const Dashboard = () => {
@@ -807,6 +808,7 @@ const VMs = () => {
 const Devices = () => {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [summary, setSummary] = useState({ total: 0, available: 0, busy: 0 });
 
   useEffect(() => {
     fetchDevices();
@@ -814,8 +816,64 @@ const Devices = () => {
 
   const fetchDevices = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/devices`);
-      setDevices(response.data.devices);
+      const [nodesResponse, availableResponse] = await Promise.all([
+        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`),
+        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes/available`)
+      ]);
+
+      const nodesData = nodesResponse.data || {};
+      const nodes = Object.values(nodesData);
+
+      const availableRaw = availableResponse.data;
+      let availableSet = new Set();
+
+      if (Array.isArray(availableRaw)) {
+        availableSet = new Set(availableRaw.map((item) => (typeof item === 'string' ? item : item?.id)));
+      } else if (availableRaw) {
+        if (Array.isArray(availableRaw.available)) {
+          availableSet = new Set(
+            availableRaw.available.map((item) => (typeof item === 'string' ? item : item?.id))
+          );
+        } else {
+          availableSet = new Set(Object.keys(availableRaw));
+        }
+      }
+
+      const normalizedDevices = nodes.map((node) => {
+        const nodeId = node?.id || node?.deviceName || node?.name;
+        const isAvailable = nodeId ? availableSet.has(nodeId) : false;
+        let derivedStatus = 'unknown';
+
+        if (isAvailable) {
+          derivedStatus = 'available';
+        } else if (node?.status) {
+          derivedStatus = node.status === 'online' ? 'busy' : node.status;
+        } else if (node?.active_sessions > 0) {
+          derivedStatus = 'busy';
+        }
+
+        return {
+          id: nodeId,
+          name: node?.deviceName || nodeId,
+          platform: node?.platform || 'Unknown',
+          os_version: node?.platform_version || 'Unknown',
+          status: derivedStatus,
+          type: node?.type || 'Unknown',
+          host: node?.host,
+          port: node?.port,
+        };
+      });
+
+      const availableCount = normalizedDevices.filter((device) => device.status === 'available').length;
+      const busyCount = normalizedDevices.filter((device) => device.status === 'busy').length;
+      const totalCount = normalizedDevices.length;
+
+      setSummary({
+        total: totalCount,
+        available: availableCount,
+        busy: busyCount,
+      });
+      setDevices(normalizedDevices);
       setLoading(false);
     } catch (error) {
       message.error('Failed to fetch devices');
@@ -826,9 +884,8 @@ const Devices = () => {
   const refreshDevices = async () => {
     try {
       setLoading(true);
-      await axios.post(`${API_URL}/api/devices/refresh`);
+      await fetchDevices();
       message.success('Devices refreshed');
-      fetchDevices();
     } catch (error) {
       message.error('Failed to refresh devices');
       setLoading(false);
@@ -845,9 +902,11 @@ const Devices = () => {
       title: 'Platform',
       dataIndex: 'platform',
       key: 'platform',
-      render: (platform) => (
-        <Tag color={platform === 'iOS' ? 'blue' : 'green'}>{platform}</Tag>
-      ),
+      render: (platform) => {
+        const label = platform || 'Unknown';
+        const color = label === 'iOS' ? 'blue' : label === 'Android' ? 'green' : undefined;
+        return <Tag color={color}>{label}</Tag>;
+      },
     },
     {
       title: 'OS Version',
@@ -859,29 +918,53 @@ const Devices = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
-        const color = status === 'available' ? 'green' : status === 'busy' ? 'orange' : 'red';
-        return <Tag color={color}>{status?.toUpperCase()}</Tag>;
+        const color = status === 'available' ? 'green' : status === 'busy' ? 'orange' : undefined;
+        return <Tag color={color}>{status ? status.toUpperCase() : 'UNKNOWN'}</Tag>;
       },
     },
     {
-      title: 'Battery',
-      dataIndex: 'battery_level',
-      key: 'battery_level',
-      render: (battery) => `${battery}%`,
+      title: 'Type',
+      dataIndex: 'type',
+      key: 'type',
+      render: (value) => value || 'Unknown',
     },
     {
-      title: 'Type',
-      dataIndex: 'device_type',
-      key: 'device_type',
+      title: 'Host',
+      dataIndex: 'host',
+      key: 'host',
+      render: (value) => value || 'N/A',
+    },
+    {
+      title: 'Port',
+      dataIndex: 'port',
+      key: 'port',
+      render: (value) => value || 'N/A',
     },
   ];
 
   return (
     <div>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}>
+          <Card>
+            <Statistic title="Total Nodes" value={summary.total} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="Available Nodes" value={summary.available} valueStyle={{ color: '#3f8600' }} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="Busy Nodes" value={summary.busy} valueStyle={{ color: '#faad14' }} />
+          </Card>
+        </Col>
+      </Row>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h1>Test Devices</h1>
+        <h1>Device Nodes</h1>
         <Button type="primary" onClick={refreshDevices}>
-          Refresh Devices
+          Refresh Nodes
         </Button>
       </div>
       <Table dataSource={devices} columns={columns} rowKey="id" loading={loading} />
