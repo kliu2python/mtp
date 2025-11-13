@@ -13,6 +13,26 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.api import vms, devices, tests, files, reports, webhooks
 from app.services.websocket_manager import manager
+from sqlalchemy import inspect, text
+
+
+def _ensure_optional_columns():
+    """Make sure optional columns added after initial deployment exist."""
+    inspector = inspect(engine)
+    existing_columns = {col["name"] for col in inspector.get_columns("virtual_machines")}
+
+    statements = []
+    if "ssh_username" not in existing_columns:
+        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
+    if "ssh_password" not in existing_columns:
+        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
+
+    if not statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(statement)
 
 
 @asynccontextmanager
@@ -23,6 +43,7 @@ async def lifespan(app: FastAPI):
     
     # Create database tables
     Base.metadata.create_all(bind=engine)
+    _ensure_optional_columns()
     print("✅ Database initialized")
     
     # Start background services
