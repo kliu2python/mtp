@@ -282,6 +282,7 @@ async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(ge
         "device_name": vm.name or vm.id,
         "device_ip": vm.ip_address,
         "device_login_name": vm.ssh_username,
+        "device_password": vm.ssh_password or "",
     }
 
     try:
