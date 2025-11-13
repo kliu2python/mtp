@@ -84,8 +84,8 @@ app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 
-# Mount static files
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount uploaded files for direct download links
+app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/")
