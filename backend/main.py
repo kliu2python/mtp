@@ -40,7 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Test Automation Platform",
+    title="Mobile Test Pilot",
     description="Automated testing platform for FortiGate and FortiAuthenticator",
     version="1.0.0",
     lifespan=lifespan
@@ -71,7 +71,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 async def root():
     """Root endpoint"""
     return {
-        "message": "Test Automation Platform API",
+        "message": "Mobile Test Pilot API",
         "version": "1.0.0",
         "docs": "/docs"
     }
