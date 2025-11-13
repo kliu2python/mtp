@@ -11,7 +11,7 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -84,6 +84,7 @@ app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
+app.include_router(dashboard.router, tags=["Dashboard"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
