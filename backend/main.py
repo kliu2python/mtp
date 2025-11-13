@@ -85,8 +85,8 @@ app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
 
-# Mount static files
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount uploaded files for direct download links
+app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
 
 
 @app.get("/")
