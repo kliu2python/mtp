@@ -34,7 +34,11 @@ import {
   ReloadOutlined,
   CodeOutlined,
   FileTextOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  ClusterOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  SyncOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
@@ -140,6 +144,555 @@ const Dashboard = () => {
           </Card>
         </Col>
       </Row>
+    </div>
+  );
+};
+
+// Jenkins Nodes Component
+const JenkinsNodes = () => {
+  const [nodes, setNodes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [nodeModalOpen, setNodeModalOpen] = useState(false);
+  const [nodeModalMode, setNodeModalMode] = useState('create');
+  const [savingNode, setSavingNode] = useState(false);
+  const [form] = Form.useForm();
+  const [editingNode, setEditingNode] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionTestResult, setConnectionTestResult] = useState(null);
+  const [poolStats, setPoolStats] = useState(null);
+
+  useEffect(() => {
+    fetchNodes();
+    fetchPoolStats();
+  }, []);
+
+  const fetchNodes = async () => {
+    try {
+      setLoading(true);
+      const response = await axios.get(`${API_URL}/api/jenkins/nodes`);
+      setNodes(response.data.nodes);
+      setLoading(false);
+    } catch (error) {
+      message.error('Failed to fetch Jenkins nodes');
+      setLoading(false);
+    }
+  };
+
+  const fetchPoolStats = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/jenkins/nodes/pool/stats`);
+      setPoolStats(response.data);
+    } catch (error) {
+      console.error('Failed to fetch pool stats:', error);
+    }
+  };
+
+  const testConnection = async () => {
+    try {
+      const values = await form.validateFields(['host', 'port', 'username', 'password', 'ssh_key']);
+      setTestingConnection(true);
+      setConnectionTestResult(null);
+
+      const response = await axios.post(`${API_URL}/api/jenkins/nodes/test-connection`, {
+        host: values.host,
+        port: values.port || 22,
+        username: values.username,
+        password: values.password,
+        ssh_key: values.ssh_key
+      });
+
+      setConnectionTestResult({
+        success: true,
+        message: response.data.message,
+        latency: response.data.latency,
+        cpu_usage: response.data.cpu_usage,
+        memory_usage: response.data.memory_usage,
+        disk_usage: response.data.disk_usage
+      });
+      message.success('Connection test successful!');
+    } catch (error) {
+      const errorMsg = error?.response?.data?.detail || 'Connection test failed';
+      setConnectionTestResult({
+        success: false,
+        message: errorMsg
+      });
+      message.error(errorMsg);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const pingNode = async (nodeId) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/jenkins/nodes/${nodeId}/ping`);
+      message.success(`Ping successful: ${response.data.latency}s`);
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      message.error('Failed to ping node');
+    }
+  };
+
+  const enableNode = async (nodeId) => {
+    try {
+      await axios.post(`${API_URL}/api/jenkins/nodes/${nodeId}/enable`);
+      message.success('Node enabled');
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      message.error('Failed to enable node');
+    }
+  };
+
+  const disableNode = async (nodeId) => {
+    try {
+      await axios.post(`${API_URL}/api/jenkins/nodes/${nodeId}/disable`);
+      message.success('Node disabled');
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      message.error('Failed to disable node');
+    }
+  };
+
+  const deleteNode = async (nodeId) => {
+    try {
+      setDeletingId(nodeId);
+      await axios.delete(`${API_URL}/api/jenkins/nodes/${nodeId}`);
+      message.success('Node deleted successfully');
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      message.error(error?.response?.data?.detail || 'Failed to delete node');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const healthCheckAll = async () => {
+    try {
+      message.loading('Running health check on all nodes...');
+      await axios.post(`${API_URL}/api/jenkins/nodes/pool/health-check`);
+      message.success('Health check completed');
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      message.error('Failed to run health check');
+    }
+  };
+
+  const openCreateModal = () => {
+    form.resetFields();
+    setEditingNode(null);
+    setNodeModalMode('create');
+    setConnectionTestResult(null);
+    setNodeModalOpen(true);
+  };
+
+  const openEditModal = (node) => {
+    form.resetFields();
+    setEditingNode(node);
+    setNodeModalMode('edit');
+    setConnectionTestResult(null);
+    form.setFieldsValue({
+      name: node.name,
+      description: node.description,
+      host: node.host,
+      port: node.port,
+      username: node.username,
+      password: node.password,
+      ssh_key: node.ssh_key,
+      max_executors: node.max_executors,
+      labels: node.labels,
+      tags: node.tags
+    });
+    setNodeModalOpen(true);
+  };
+
+  const handleSaveNode = async () => {
+    try {
+      const values = await form.validateFields();
+      setSavingNode(true);
+
+      if (nodeModalMode === 'edit' && editingNode) {
+        await axios.put(`${API_URL}/api/jenkins/nodes/${editingNode.id}`, values);
+        message.success('Jenkins node updated');
+      } else {
+        await axios.post(`${API_URL}/api/jenkins/nodes`, values);
+        message.success('Jenkins node created');
+      }
+
+      setNodeModalOpen(false);
+      setEditingNode(null);
+      setNodeModalMode('create');
+      form.resetFields();
+      setConnectionTestResult(null);
+      fetchNodes();
+      fetchPoolStats();
+    } catch (error) {
+      if (error?.response?.data?.detail) {
+        message.error(error.response.data.detail);
+      } else if (error?.errorFields) {
+        // Validation errors are handled by form
+      } else {
+        message.error('Failed to save node');
+      }
+    } finally {
+      setSavingNode(false);
+    }
+  };
+
+  const getStatusTag = (status) => {
+    const statusConfig = {
+      online: { color: 'success', icon: <CheckCircleOutlined /> },
+      busy: { color: 'processing', icon: <SyncOutlined spin /> },
+      offline: { color: 'default', icon: <CloseCircleOutlined /> },
+      error: { color: 'error', icon: <CloseCircleOutlined /> },
+      testing: { color: 'warning', icon: <SyncOutlined spin /> }
+    };
+    const config = statusConfig[status] || statusConfig.offline;
+    return <Tag color={config.color} icon={config.icon}>{status.toUpperCase()}</Tag>;
+  };
+
+  const columns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      fixed: 'left'
+    },
+    {
+      title: 'Host',
+      dataIndex: 'host',
+      key: 'host',
+      render: (host, record) => `${host}:${record.port}`
+    },
+    {
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => getStatusTag(status)
+    },
+    {
+      title: 'Executors',
+      key: 'executors',
+      render: (_, record) => `${record.current_executors}/${record.max_executors}`
+    },
+    {
+      title: 'Resources',
+      key: 'resources',
+      render: (_, record) => (
+        <div>
+          <div>CPU: {record.cpu_usage}%</div>
+          <div>Mem: {record.memory_usage}%</div>
+          <div>Disk: {record.disk_usage}%</div>
+        </div>
+      )
+    },
+    {
+      title: 'Tests',
+      key: 'tests',
+      render: (_, record) => (
+        <div>
+          <div>Total: {record.total_tests_executed}</div>
+          <div>Pass Rate: {record.pass_rate}%</div>
+        </div>
+      )
+    },
+    {
+      title: 'Labels',
+      dataIndex: 'labels',
+      key: 'labels',
+      render: (labels) => (
+        <>
+          {labels?.map(label => (
+            <Tag key={label}>{label}</Tag>
+          ))}
+        </>
+      )
+    },
+    {
+      title: 'Enabled',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (enabled) => enabled ? <Tag color="success">Yes</Tag> : <Tag color="default">No</Tag>
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      fixed: 'right',
+      render: (_, record) => (
+        <Space>
+          <Button
+            size="small"
+            icon={<SyncOutlined />}
+            onClick={() => pingNode(record.id)}
+            title="Ping node"
+          />
+          {record.enabled ? (
+            <Button
+              size="small"
+              onClick={() => disableNode(record.id)}
+              title="Disable node"
+            >
+              Disable
+            </Button>
+          ) : (
+            <Button
+              size="small"
+              type="primary"
+              onClick={() => enableNode(record.id)}
+              title="Enable node"
+            >
+              Enable
+            </Button>
+          )}
+          <Button
+            size="small"
+            onClick={() => openEditModal(record)}
+          >
+            Edit
+          </Button>
+          <Popconfirm
+            title="Are you sure you want to delete this node?"
+            onConfirm={() => deleteNode(record.id)}
+            okText="Yes"
+            cancelText="No"
+          >
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingId === record.id}
+            />
+          </Popconfirm>
+        </Space>
+      )
+    }
+  ];
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+        <h1>Jenkins Slave Nodes</h1>
+        <Space>
+          <Button
+            type="default"
+            icon={<SyncOutlined />}
+            onClick={healthCheckAll}
+          >
+            Health Check All
+          </Button>
+          <Button
+            type="default"
+            icon={<ReloadOutlined />}
+            onClick={() => {
+              fetchNodes();
+              fetchPoolStats();
+            }}
+          >
+            Refresh
+          </Button>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={openCreateModal}
+          >
+            Add Node
+          </Button>
+        </Space>
+      </div>
+
+      {poolStats && (
+        <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Total Nodes"
+                value={poolStats.total_nodes}
+                prefix={<ClusterOutlined />}
+              />
+            </Card>
+          </Col>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Online"
+                value={poolStats.online_nodes}
+                valueStyle={{ color: '#3f8600' }}
+              />
+            </Card>
+          </Col>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Busy"
+                value={poolStats.busy_nodes}
+                valueStyle={{ color: '#1890ff' }}
+              />
+            </Card>
+          </Col>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Available Executors"
+                value={poolStats.available_executors}
+                suffix={`/ ${poolStats.total_executors}`}
+              />
+            </Card>
+          </Col>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Tests Executed"
+                value={poolStats.total_tests_executed}
+              />
+            </Card>
+          </Col>
+          <Col span={4}>
+            <Card>
+              <Statistic
+                title="Pass Rate"
+                value={poolStats.pass_rate}
+                suffix="%"
+                valueStyle={{ color: poolStats.pass_rate >= 80 ? '#3f8600' : '#cf1322' }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <Table
+        columns={columns}
+        dataSource={nodes}
+        loading={loading}
+        rowKey="id"
+        scroll={{ x: 1200 }}
+      />
+
+      <Modal
+        title={nodeModalMode === 'create' ? 'Add Jenkins Slave Node' : 'Edit Jenkins Slave Node'}
+        open={nodeModalOpen}
+        onOk={handleSaveNode}
+        onCancel={() => {
+          setNodeModalOpen(false);
+          setConnectionTestResult(null);
+        }}
+        confirmLoading={savingNode}
+        width={700}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            label="Name"
+            name="name"
+            rules={[{ required: true, message: 'Please enter node name' }]}
+          >
+            <Input placeholder="e.g., jenkins-slave-01" />
+          </Form.Item>
+
+          <Form.Item label="Description" name="description">
+            <Input.TextArea placeholder="Optional description" rows={2} />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={16}>
+              <Form.Item
+                label="Host"
+                name="host"
+                rules={[{ required: true, message: 'Please enter host' }]}
+              >
+                <Input placeholder="e.g., 192.168.1.100" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Port"
+                name="port"
+                initialValue={22}
+                rules={[{ required: true, message: 'Please enter port' }]}
+              >
+                <InputNumber placeholder="22" style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            label="Username"
+            name="username"
+            rules={[{ required: true, message: 'Please enter username' }]}
+          >
+            <Input placeholder="SSH username" />
+          </Form.Item>
+
+          <Form.Item label="Password" name="password">
+            <Input.Password placeholder="SSH password (optional if using SSH key)" />
+          </Form.Item>
+
+          <Form.Item label="SSH Key Path" name="ssh_key">
+            <Input placeholder="/path/to/private/key (optional if using password)" />
+          </Form.Item>
+
+          <Form.Item
+            label="Max Executors"
+            name="max_executors"
+            initialValue={2}
+            rules={[{ required: true, message: 'Please enter max executors' }]}
+          >
+            <InputNumber min={1} max={10} style={{ width: '100%' }} />
+          </Form.Item>
+
+          <Form.Item label="Labels" name="labels">
+            <Select
+              mode="tags"
+              placeholder="e.g., android, ios, linux"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item label="Tags" name="tags">
+            <Select
+              mode="tags"
+              placeholder="Additional tags"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Button
+              type="default"
+              onClick={testConnection}
+              loading={testingConnection}
+              icon={<SyncOutlined />}
+              block
+            >
+              Test Connection
+            </Button>
+          </Form.Item>
+
+          {connectionTestResult && (
+            <Alert
+              message={connectionTestResult.success ? 'Connection Successful' : 'Connection Failed'}
+              description={
+                <div>
+                  <div>{connectionTestResult.message}</div>
+                  {connectionTestResult.success && (
+                    <div style={{ marginTop: 8 }}>
+                      <div>Latency: {connectionTestResult.latency}s</div>
+                      <div>CPU Usage: {connectionTestResult.cpu_usage}%</div>
+                      <div>Memory Usage: {connectionTestResult.memory_usage}%</div>
+                      <div>Disk Usage: {connectionTestResult.disk_usage}%</div>
+                    </div>
+                  )}
+                </div>
+              }
+              type={connectionTestResult.success ? 'success' : 'error'}
+              showIcon
+              style={{ marginTop: 8 }}
+            />
+          )}
+        </Form>
+      </Modal>
     </div>
   );
 };
@@ -1054,6 +1607,7 @@ function App() {
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard', path: '/' },
     { key: '/vms', icon: <CloudServerOutlined />, label: 'Virtual Machines', path: '/vms' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
+    { key: '/jenkins', icon: <ClusterOutlined />, label: 'Jenkins Nodes', path: '/jenkins' },
     { key: '/tests', icon: <ExperimentOutlined />, label: 'Tests', path: '/tests' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
   ];
@@ -1082,6 +1636,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/vms" element={<VMs />} />
               <Route path="/devices" element={<Devices />} />
+              <Route path="/jenkins" element={<JenkinsNodes />} />
               <Route path="/tests" element={<Tests />} />
               <Route path="/files" element={<Files />} />
             </Routes>

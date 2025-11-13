@@ -11,7 +11,7 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -83,6 +83,7 @@ app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
+app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
 
 # Mount static files
 # app.mount("/static", StaticFiles(directory="static"), name="static")
