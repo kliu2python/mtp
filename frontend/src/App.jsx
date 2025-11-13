@@ -1,13 +1,39 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { Layout, Menu, Card, Row, Col, Statistic, Table, Tag, Button, message } from 'antd';
+import {
+  Layout,
+  Menu,
+  Card,
+  Row,
+  Col,
+  Statistic,
+  Table,
+  Tag,
+  Button,
+  message,
+  Modal,
+  Form,
+  Input,
+  Select,
+  InputNumber,
+  Space,
+  Drawer,
+  Spin,
+  Typography,
+  Popconfirm
+} from 'antd';
 import {
   DashboardOutlined,
   CloudServerOutlined,
   MobileOutlined,
   FileOutlined,
   ExperimentOutlined,
-  BarChartOutlined
+  BarChartOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  CodeOutlined,
+  FileTextOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
@@ -117,6 +143,18 @@ const Dashboard = () => {
 const VMs = () => {
   const [vms, setVms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [form] = Form.useForm();
+  const [selectedVm, setSelectedVm] = useState(null);
+  const [sshModalOpen, setSshModalOpen] = useState(false);
+  const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [metricsDrawerOpen, setMetricsDrawerOpen] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metrics, setMetrics] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     fetchVMs();
@@ -124,6 +162,7 @@ const VMs = () => {
 
   const fetchVMs = async () => {
     try {
+      setLoading(true);
       const response = await axios.get(`${API_URL}/api/vms`);
       setVms(response.data.vms);
       setLoading(false);
@@ -150,6 +189,120 @@ const VMs = () => {
       fetchVMs();
     } catch (error) {
       message.error('Failed to stop VM');
+    }
+  };
+
+  const deleteVM = async (vmId) => {
+    try {
+      setDeletingId(vmId);
+      await axios.delete(`${API_URL}/api/vms/${vmId}`);
+      message.success('VM deleted successfully');
+      fetchVMs();
+    } catch (error) {
+      message.error('Failed to delete VM');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const openCreateModal = () => {
+    form.resetFields();
+    setCreateModalOpen(true);
+  };
+
+  const handleCreateVm = async () => {
+    try {
+      const values = await form.validateFields();
+      setCreating(true);
+      await axios.post(`${API_URL}/api/vms`, values);
+      message.success('Virtual machine created');
+      setCreateModalOpen(false);
+      fetchVMs();
+    } catch (error) {
+      if (error?.response?.data?.detail) {
+        message.error(error.response.data.detail);
+      } else if (error?.errorFields) {
+        // Validation errors are handled by form
+      } else {
+        message.error('Failed to create VM');
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openSshModal = (vm) => {
+    setSelectedVm(vm);
+    setSshModalOpen(true);
+  };
+
+  const sshCommand = selectedVm?.ip_address
+    ? `ssh admin@${selectedVm.ip_address}`
+    : 'No IP address available for this VM yet.';
+
+  const handleLaunchSsh = () => {
+    if (selectedVm?.ip_address) {
+      window.open(`ssh://${selectedVm.ip_address}`, '_blank');
+    }
+  };
+
+  const openLogsDrawer = async (vm) => {
+    setSelectedVm(vm);
+    setLogs([]);
+    setLogsDrawerOpen(true);
+    setLogsLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/vms/${vm.id}/logs`, {
+        params: { tail: 200 }
+      });
+      setLogs(response.data.logs || []);
+    } catch (error) {
+      message.error('Failed to load VM logs');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const refreshLogs = async () => {
+    if (!selectedVm) return;
+    setLogsLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/vms/${selectedVm.id}/logs`, {
+        params: { tail: 200 }
+      });
+      setLogs(response.data.logs || []);
+    } catch (error) {
+      message.error('Failed to refresh logs');
+    } finally {
+      setLogsLoading(false);
+    }
+  };
+
+  const openMetricsDrawer = async (vm) => {
+    setSelectedVm(vm);
+    setMetrics(null);
+    setMetricsDrawerOpen(true);
+    setMetricsLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/vms/${vm.id}/metrics`);
+      setMetrics(response.data);
+    } catch (error) {
+      message.error('Failed to load VM metrics');
+    } finally {
+      setMetricsLoading(false);
+    }
+  };
+
+  const refreshMetrics = async () => {
+    if (!selectedVm) return;
+    setMetricsLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/vms/${selectedVm.id}/metrics`);
+      setMetrics(response.data);
+    } catch (error) {
+      message.error('Failed to refresh metrics');
+    } finally {
+      setMetricsLoading(false);
     }
   };
 
@@ -193,7 +346,7 @@ const VMs = () => {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
-        <span>
+        <Space size="small" wrap>
           {record.status !== 'running' ? (
             <Button type="primary" size="small" onClick={() => startVM(record.id)}>
               Start
@@ -203,15 +356,184 @@ const VMs = () => {
               Stop
             </Button>
           )}
-        </span>
+          <Button
+            size="small"
+            icon={<CodeOutlined />}
+            onClick={() => openSshModal(record)}
+          >
+            SSH
+          </Button>
+          <Button
+            size="small"
+            icon={<FileTextOutlined />}
+            onClick={() => openLogsDrawer(record)}
+          >
+            Logs
+          </Button>
+          <Button
+            size="small"
+            icon={<BarChartOutlined />}
+            onClick={() => openMetricsDrawer(record)}
+          >
+            Metrics
+          </Button>
+          <Popconfirm
+            title="Delete VM"
+            description="This action cannot be undone."
+            onConfirm={() => deleteVM(record.id)}
+            okText="Delete"
+            okType="danger"
+            okButtonProps={{ loading: deletingId === record.id }}
+          >
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              loading={deletingId === record.id}
+            >
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
 
   return (
     <div>
-      <h1>Virtual Machines</h1>
-      <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <h1 style={{ margin: 0 }}>Virtual Machines</h1>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
+            Refresh
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+            Add VM
+          </Button>
+        </Space>
+      </div>
+      <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 10 }} />
+
+      <Modal
+        title="Create Virtual Machine"
+        open={createModalOpen}
+        onOk={handleCreateVm}
+        onCancel={() => setCreateModalOpen(false)}
+        okText="Create"
+        confirmLoading={creating}
+      >
+        <Form form={form} layout="vertical" initialValues={{ platform: 'FortiGate', test_priority: 3 }}>
+          <Form.Item
+            name="name"
+            label="Name"
+            rules={[{ required: true, message: 'Please enter a name for the VM' }]}
+          >
+            <Input placeholder="FortiGate QA" />
+          </Form.Item>
+          <Form.Item
+            name="platform"
+            label="Platform"
+            rules={[{ required: true, message: 'Please select a platform' }]}
+          >
+            <Select
+              options={[
+                { label: 'FortiGate', value: 'FortiGate' },
+                { label: 'FortiAuthenticator', value: 'FortiAuthenticator' }
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="version"
+            label="Version"
+            rules={[{ required: true, message: 'Please provide the firmware version' }]}
+          >
+            <Input placeholder="7.2.0" />
+          </Form.Item>
+          <Form.Item
+            name="test_priority"
+            label="Test Priority"
+            rules={[{ required: true }]}
+          >
+            <InputNumber min={1} max={5} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={`SSH Console${selectedVm ? ` - ${selectedVm.name}` : ''}`}
+        open={sshModalOpen}
+        onOk={() => {
+          setSshModalOpen(false);
+        }}
+        onCancel={() => setSshModalOpen(false)}
+        okText="Close"
+        footer={[
+          <Button key="launch" type="primary" onClick={handleLaunchSsh} disabled={!selectedVm?.ip_address}>
+            Open SSH Client
+          </Button>,
+          <Button key="close" onClick={() => setSshModalOpen(false)}>
+            Close
+          </Button>
+        ]}
+      >
+        {selectedVm?.ip_address ? (
+          <Typography.Paragraph copyable>{sshCommand}</Typography.Paragraph>
+        ) : (
+          <Typography.Text type="secondary">{sshCommand}</Typography.Text>
+        )}
+        <Typography.Text type="secondary">
+          Use the command above in your preferred terminal. Opening the SSH client requires an SSH handler configured on your
+          device.
+        </Typography.Text>
+      </Modal>
+
+      <Drawer
+        title={`Logs${selectedVm ? ` - ${selectedVm.name}` : ''}`}
+        placement="right"
+        width={480}
+        onClose={() => setLogsDrawerOpen(false)}
+        open={logsDrawerOpen}
+        extra={
+          <Button icon={<ReloadOutlined />} size="small" onClick={refreshLogs} disabled={logsLoading}>
+            Refresh
+          </Button>
+        }
+      >
+        {logsLoading ? (
+          <Spin />
+        ) : (
+          <pre style={{ background: '#f5f5f5', padding: 12, borderRadius: 4, maxHeight: '60vh', overflow: 'auto' }}>
+            {logs && logs.length ? logs.join('\n') : 'No logs available'}
+          </pre>
+        )}
+      </Drawer>
+
+      <Drawer
+        title={`Metrics${selectedVm ? ` - ${selectedVm.name}` : ''}`}
+        placement="right"
+        width={360}
+        onClose={() => setMetricsDrawerOpen(false)}
+        open={metricsDrawerOpen}
+        extra={
+          <Button icon={<ReloadOutlined />} size="small" onClick={refreshMetrics} disabled={metricsLoading}>
+            Refresh
+          </Button>
+        }
+      >
+        {metricsLoading ? (
+          <Spin />
+        ) : metrics ? (
+          <Typography.Paragraph>
+            <strong>CPU Usage:</strong> {metrics.cpu_usage ?? metrics.cpu_percent ?? 0}%
+            <br />
+            <strong>Memory Usage:</strong> {metrics.memory_usage ?? metrics.memory_percent ?? 0}%
+            <br />
+            <strong>Disk Usage:</strong> {metrics.disk_usage ?? metrics.disk_percent ?? 0}%
+          </Typography.Paragraph>
+        ) : (
+          <Typography.Text type="secondary">No metrics available.</Typography.Text>
+        )}
+      </Drawer>
     </div>
   );
 };
@@ -394,7 +716,7 @@ function App() {
       <Layout style={{ minHeight: '100vh' }}>
         <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed}>
           <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 18, fontWeight: 'bold' }}>
-            {collapsed ? 'TP' : 'Test Platform'}
+            {collapsed ? 'MTP' : 'Mobile Test Pilot'}
           </div>
           <Menu theme="dark" mode="inline" defaultSelectedKeys={['/']}>
             {menuItems.map(item => (
@@ -406,7 +728,7 @@ function App() {
         </Sider>
         <Layout>
           <Header style={{ background: '#fff', padding: '0 24px' }}>
-            <h2>Test Automation Platform</h2>
+            <h2>Mobile Test Pilot</h2>
           </Header>
           <Content style={{ margin: '24px 16px', padding: 24, background: '#fff' }}>
             <Routes>
