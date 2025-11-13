@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://testuser:testpass@db:5432/testplatform"
+        "sqlite:///./data/testplatform.db"
     )
     
     # Redis
