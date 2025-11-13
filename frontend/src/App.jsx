@@ -843,11 +843,10 @@ const Devices = () => {
         const nodeId = node?.id || node?.deviceName || node?.name;
         const isAvailable = nodeId ? availableSet.has(nodeId) : false;
         let derivedStatus = 'unknown';
-
         if (isAvailable) {
           derivedStatus = 'available';
         } else if (node?.status) {
-          derivedStatus = node.status === 'online' ? 'busy' : node.status;
+          derivedStatus = node.status === 'online' ? 'available' : 'busy';
         } else if (node?.active_sessions > 0) {
           derivedStatus = 'busy';
         }
