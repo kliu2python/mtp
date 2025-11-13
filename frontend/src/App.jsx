@@ -21,7 +21,10 @@ import {
   Spin,
   Typography,
   Popconfirm,
-  Alert
+  Alert,
+  Upload,
+  Image,
+  Tooltip
 } from 'antd';
 import {
   DashboardOutlined,
@@ -38,7 +41,12 @@ import {
   ClusterOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-  SyncOutlined
+  SyncOutlined,
+  UploadOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  QrcodeOutlined,
+  EyeOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
@@ -1526,13 +1534,357 @@ const Devices = () => {
 
 // Files Component
 const Files = () => {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [uploadModalVisible, setUploadModalVisible] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [qrData, setQrData] = useState(null);
+  const [fileContent, setFileContent] = useState('');
+  const [editingFileName, setEditingFileName] = useState('');
+  const [fileList, setFileList] = useState([]);
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    fetchFiles();
+  }, []);
+
+  const fetchFiles = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/files/`);
+      setFiles(response.data);
+    } catch (error) {
+      message.error('Failed to fetch files');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (fileList.length === 0) {
+      message.warning('Please select at least one file');
+      return;
+    }
+
+    const formData = new FormData();
+    fileList.forEach(file => {
+      formData.append('files', file.originFileObj || file);
+    });
+
+    setLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/files/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      message.success('Files uploaded successfully');
+      setUploadModalVisible(false);
+      setFileList([]);
+      fetchFiles();
+    } catch (error) {
+      message.error('Failed to upload files');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = (filename) => {
+    window.open(`${API_URL}/uploads/${encodeURIComponent(filename)}`, '_blank');
+  };
+
+  const handleDelete = async (filename) => {
+    setLoading(true);
+    try {
+      await axios.delete(`${API_URL}/api/files/file/${encodeURIComponent(filename)}`);
+      message.success('File deleted successfully');
+      fetchFiles();
+    } catch (error) {
+      message.error('Failed to delete file');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateQR = async (filename) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/files/qr/${encodeURIComponent(filename)}`);
+      setQrData(response.data);
+      setQrModalVisible(true);
+    } catch (error) {
+      message.error('Failed to generate QR code');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditFile = async (filename) => {
+    setLoading(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/files/file/${encodeURIComponent(filename)}`);
+      setFileContent(response.data.content);
+      setEditingFileName(filename);
+      setSelectedFile(filename);
+      form.setFieldsValue({
+        newName: filename,
+        content: response.data.content
+      });
+      setEditModalVisible(true);
+    } catch (error) {
+      if (error.response?.status === 415) {
+        message.error('This file is not a text file and cannot be edited');
+      } else {
+        message.error('Failed to read file');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveFile = async () => {
+    try {
+      const values = await form.validateFields();
+      setLoading(true);
+
+      await axios.put(`${API_URL}/api/files/file/${encodeURIComponent(editingFileName)}`, {
+        newName: values.newName !== editingFileName ? values.newName : undefined,
+        content: values.content !== fileContent ? values.content : undefined
+      });
+
+      message.success('File updated successfully');
+      setEditModalVisible(false);
+      form.resetFields();
+      fetchFiles();
+    } catch (error) {
+      if (error.response) {
+        message.error('Failed to update file');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleString();
+  };
+
+  const columns = [
+    {
+      title: 'Name',
+      dataIndex: 'name',
+      key: 'name',
+      sorter: (a, b) => a.name.localeCompare(b.name),
+      render: (text) => (
+        <Space>
+          <FileOutlined />
+          {text}
+        </Space>
+      ),
+    },
+    {
+      title: 'Size',
+      dataIndex: 'size',
+      key: 'size',
+      sorter: (a, b) => a.size - b.size,
+      render: (size) => formatFileSize(size),
+    },
+    {
+      title: 'Upload Date',
+      dataIndex: 'uploadDate',
+      key: 'uploadDate',
+      sorter: (a, b) => new Date(a.uploadDate) - new Date(b.uploadDate),
+      render: (date) => formatDate(date),
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Space>
+          <Tooltip title="Download">
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => handleDownload(record.name)}
+              size="small"
+            />
+          </Tooltip>
+          <Tooltip title="Generate QR Code">
+            <Button
+              icon={<QrcodeOutlined />}
+              onClick={() => handleGenerateQR(record.name)}
+              size="small"
+            />
+          </Tooltip>
+          <Tooltip title="View/Edit">
+            <Button
+              icon={<EditOutlined />}
+              onClick={() => handleEditFile(record.name)}
+              size="small"
+            />
+          </Tooltip>
+          <Popconfirm
+            title="Are you sure you want to delete this file?"
+            onConfirm={() => handleDelete(record.name)}
+            okText="Yes"
+            cancelText="No"
+          >
+            <Tooltip title="Delete">
+              <Button
+                icon={<DeleteOutlined />}
+                danger
+                size="small"
+              />
+            </Tooltip>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  const uploadProps = {
+    multiple: true,
+    fileList: fileList,
+    beforeUpload: (file) => {
+      setFileList([...fileList, file]);
+      return false;
+    },
+    onRemove: (file) => {
+      const index = fileList.indexOf(file);
+      const newFileList = fileList.slice();
+      newFileList.splice(index, 1);
+      setFileList(newFileList);
+    },
+  };
+
   return (
     <div>
-      <h1>File Browser</h1>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>File Browser</h1>
+        <Space>
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            onClick={() => setUploadModalVisible(true)}
+          >
+            Upload Files
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchFiles}
+          >
+            Refresh
+          </Button>
+        </Space>
+      </div>
+
       <Card>
-        <p>File browser functionality - Upload and manage test files</p>
-        <Button type="primary">Upload File</Button>
+        <Table
+          dataSource={files}
+          columns={columns}
+          rowKey="name"
+          loading={loading}
+          pagination={{ pageSize: 10 }}
+        />
       </Card>
+
+      {/* Upload Modal */}
+      <Modal
+        title="Upload Files"
+        open={uploadModalVisible}
+        onOk={handleUpload}
+        onCancel={() => {
+          setUploadModalVisible(false);
+          setFileList([]);
+        }}
+        okText="Upload"
+        confirmLoading={loading}
+      >
+        <Upload.Dragger {...uploadProps}>
+          <p className="ant-upload-drag-icon">
+            <UploadOutlined />
+          </p>
+          <p className="ant-upload-text">Click or drag files to this area to upload</p>
+          <p className="ant-upload-hint">Support for single or bulk upload</p>
+        </Upload.Dragger>
+      </Modal>
+
+      {/* QR Code Modal */}
+      <Modal
+        title="QR Code for Download"
+        open={qrModalVisible}
+        onCancel={() => {
+          setQrModalVisible(false);
+          setQrData(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => setQrModalVisible(false)}>
+            Close
+          </Button>
+        ]}
+      >
+        {qrData && (
+          <div style={{ textAlign: 'center' }}>
+            <p><strong>File:</strong> {qrData.filename}</p>
+            <Image
+              src={qrData.qrDataUrl}
+              alt="QR Code"
+              style={{ maxWidth: '100%' }}
+              preview={false}
+            />
+            <p style={{ marginTop: 16, wordBreak: 'break-all' }}>
+              <strong>Download URL:</strong><br />
+              <a href={qrData.downloadUrl} target="_blank" rel="noopener noreferrer">
+                {qrData.downloadUrl}
+              </a>
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {/* Edit File Modal */}
+      <Modal
+        title={`Edit File: ${editingFileName}`}
+        open={editModalVisible}
+        onOk={handleSaveFile}
+        onCancel={() => {
+          setEditModalVisible(false);
+          form.resetFields();
+        }}
+        okText="Save"
+        confirmLoading={loading}
+        width={800}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            label="File Name"
+            name="newName"
+            rules={[{ required: true, message: 'Please enter a file name' }]}
+          >
+            <Input placeholder="Enter new file name" />
+          </Form.Item>
+          <Form.Item
+            label="Content"
+            name="content"
+            rules={[{ required: true, message: 'Content cannot be empty' }]}
+          >
+            <Input.TextArea
+              rows={15}
+              placeholder="File content"
+              style={{ fontFamily: 'monospace' }}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };
