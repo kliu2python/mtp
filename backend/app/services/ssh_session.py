@@ -98,7 +98,6 @@ def build_ssh_command(device: Dict[str, str]) -> List[str]:
 
         # 🔥 KEY AUTH DISABLED
         "-o", "PubkeyAuthentication=no",
-        "-o", "PubkeyAcceptedKeyTypes=none",
         "-o", "HostbasedAuthentication=no",
         "-o", "IdentitiesOnly=yes",
 
