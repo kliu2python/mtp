@@ -143,9 +143,11 @@ const Dashboard = () => {
 const VMs = () => {
   const [vms, setVms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [vmModalOpen, setVmModalOpen] = useState(false);
+  const [vmModalMode, setVmModalMode] = useState('create');
+  const [savingVm, setSavingVm] = useState(false);
   const [form] = Form.useForm();
+  const [editingVm, setEditingVm] = useState(null);
   const [selectedVm, setSelectedVm] = useState(null);
   const [sshModalOpen, setSshModalOpen] = useState(false);
   const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
@@ -207,16 +209,42 @@ const VMs = () => {
 
   const openCreateModal = () => {
     form.resetFields();
-    setCreateModalOpen(true);
+    setEditingVm(null);
+    setVmModalMode('create');
+    setVmModalOpen(true);
   };
 
-  const handleCreateVm = async () => {
+  const openEditModal = (vm) => {
+    form.resetFields();
+    setEditingVm(vm);
+    setVmModalMode('edit');
+    form.setFieldsValue({
+      name: vm.name,
+      platform: vm.platform,
+      version: vm.version,
+      test_priority: vm.test_priority,
+      ip_address: vm.ip_address,
+      ssh_username: vm.ssh_username,
+      ssh_password: vm.ssh_password,
+    });
+    setVmModalOpen(true);
+  };
+
+  const handleSaveVm = async () => {
     try {
       const values = await form.validateFields();
-      setCreating(true);
-      await axios.post(`${API_URL}/api/vms`, values);
-      message.success('Virtual machine created');
-      setCreateModalOpen(false);
+      setSavingVm(true);
+      if (vmModalMode === 'edit' && editingVm) {
+        await axios.put(`${API_URL}/api/vms/${editingVm.id}`, values);
+        message.success('Virtual machine updated');
+      } else {
+        await axios.post(`${API_URL}/api/vms`, values);
+        message.success('Virtual machine created');
+      }
+      setVmModalOpen(false);
+      setEditingVm(null);
+      setVmModalMode('create');
+      form.resetFields();
       fetchVMs();
     } catch (error) {
       if (error?.response?.data?.detail) {
@@ -224,10 +252,10 @@ const VMs = () => {
       } else if (error?.errorFields) {
         // Validation errors are handled by form
       } else {
-        message.error('Failed to create VM');
+        message.error('Failed to save VM');
       }
     } finally {
-      setCreating(false);
+      setSavingVm(false);
     }
   };
 
@@ -236,13 +264,14 @@ const VMs = () => {
     setSshModalOpen(true);
   };
 
-  const sshCommand = selectedVm?.ip_address
-    ? `ssh admin@${selectedVm.ip_address}`
-    : 'No IP address available for this VM yet.';
+  const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username;
+  const sshCommand = hasSshDetails
+    ? `ssh ${selectedVm.ssh_username}@${selectedVm.ip_address}`
+    : 'No SSH connection details available for this VM yet.';
 
   const handleLaunchSsh = () => {
-    if (selectedVm?.ip_address) {
-      window.open(`ssh://${selectedVm.ip_address}`, '_blank');
+    if (hasSshDetails) {
+      window.open(`ssh://${selectedVm.ssh_username}@${selectedVm.ip_address}`, '_blank');
     }
   };
 
@@ -323,6 +352,18 @@ const VMs = () => {
       key: 'version',
     },
     {
+      title: 'IP Address',
+      dataIndex: 'ip_address',
+      key: 'ip_address',
+      render: (value) => value || 'Not set',
+    },
+    {
+      title: 'SSH Username',
+      dataIndex: 'ssh_username',
+      key: 'ssh_username',
+      render: (value) => value || 'Not set',
+    },
+    {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
@@ -377,6 +418,12 @@ const VMs = () => {
           >
             Metrics
           </Button>
+          <Button
+            size="small"
+            onClick={() => openEditModal(record)}
+          >
+            Edit
+          </Button>
           <Popconfirm
             title="Delete VM"
             description="This action cannot be undone."
@@ -415,14 +462,23 @@ const VMs = () => {
       <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 10 }} />
 
       <Modal
-        title="Create Virtual Machine"
-        open={createModalOpen}
-        onOk={handleCreateVm}
-        onCancel={() => setCreateModalOpen(false)}
-        okText="Create"
-        confirmLoading={creating}
+        title={vmModalMode === 'edit' ? 'Edit Virtual Machine' : 'Create Virtual Machine'}
+        open={vmModalOpen}
+        onOk={handleSaveVm}
+        onCancel={() => {
+          setVmModalOpen(false);
+          setEditingVm(null);
+          setVmModalMode('create');
+          form.resetFields();
+        }}
+        okText={vmModalMode === 'edit' ? 'Save Changes' : 'Create'}
+        confirmLoading={savingVm}
       >
-        <Form form={form} layout="vertical" initialValues={{ platform: 'FortiGate', test_priority: 3 }}>
+        <Form
+          form={form}
+          layout="vertical"
+          initialValues={{ platform: 'FortiGate', test_priority: 3, ssh_username: 'admin' }}
+        >
           <Form.Item
             name="name"
             label="Name"
@@ -450,6 +506,27 @@ const VMs = () => {
             <Input placeholder="7.2.0" />
           </Form.Item>
           <Form.Item
+            name="ip_address"
+            label="IP Address"
+            rules={[{ required: true, message: 'Please provide the VM IP address' }]}
+          >
+            <Input placeholder="192.168.1.10" />
+          </Form.Item>
+          <Form.Item
+            name="ssh_username"
+            label="SSH Username"
+            rules={[{ required: true, message: 'Please provide the SSH username' }]}
+          >
+            <Input placeholder="admin" />
+          </Form.Item>
+          <Form.Item
+            name="ssh_password"
+            label="SSH Password"
+            rules={[{ required: true, message: 'Please provide the SSH password' }]}
+          >
+            <Input.Password placeholder="••••••" />
+          </Form.Item>
+          <Form.Item
             name="test_priority"
             label="Test Priority"
             rules={[{ required: true }]}
@@ -468,7 +545,7 @@ const VMs = () => {
         onCancel={() => setSshModalOpen(false)}
         okText="Close"
         footer={[
-          <Button key="launch" type="primary" onClick={handleLaunchSsh} disabled={!selectedVm?.ip_address}>
+          <Button key="launch" type="primary" onClick={handleLaunchSsh} disabled={!hasSshDetails}>
             Open SSH Client
           </Button>,
           <Button key="close" onClick={() => setSshModalOpen(false)}>
@@ -476,8 +553,15 @@ const VMs = () => {
           </Button>
         ]}
       >
-        {selectedVm?.ip_address ? (
-          <Typography.Paragraph copyable>{sshCommand}</Typography.Paragraph>
+        {hasSshDetails ? (
+          <>
+            <Typography.Paragraph copyable>{sshCommand}</Typography.Paragraph>
+            {selectedVm?.ssh_password ? (
+              <Typography.Paragraph copyable>Password: {selectedVm.ssh_password}</Typography.Paragraph>
+            ) : (
+              <Typography.Text type="secondary">No password saved for this VM.</Typography.Text>
+            )}
+          </>
         ) : (
           <Typography.Text type="secondary">{sshCommand}</Typography.Text>
         )}

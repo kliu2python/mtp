@@ -19,9 +19,18 @@ class VMCreate(BaseModel):
     platform: str
     version: str
     test_priority: int = 3
+    ip_address: Optional[str] = None
+    ssh_username: Optional[str] = None
+    ssh_password: Optional[str] = None
 
 
 class VMUpdate(BaseModel):
+    name: Optional[str] = None
+    platform: Optional[str] = None
+    version: Optional[str] = None
+    ip_address: Optional[str] = None
+    ssh_username: Optional[str] = None
+    ssh_password: Optional[str] = None
     status: Optional[str] = None
     test_priority: Optional[int] = None
     tags: Optional[List[str]] = None
@@ -74,6 +83,9 @@ async def create_vm(vm_data: VMCreate, db: Session = Depends(get_db)):
         platform=VMPlatform(vm_data.platform),
         version=vm_data.version,
         test_priority=vm_data.test_priority,
+        ip_address=vm_data.ip_address,
+        ssh_username=vm_data.ssh_username,
+        ssh_password=vm_data.ssh_password,
         status=VMStatus.STOPPED
     )
     
@@ -91,6 +103,18 @@ async def update_vm(vm_id: str, vm_data: VMUpdate, db: Session = Depends(get_db)
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
     
+    if vm_data.name is not None:
+        vm.name = vm_data.name
+    if vm_data.platform is not None:
+        vm.platform = VMPlatform(vm_data.platform)
+    if vm_data.version is not None:
+        vm.version = vm_data.version
+    if vm_data.ip_address is not None:
+        vm.ip_address = vm_data.ip_address
+    if vm_data.ssh_username is not None:
+        vm.ssh_username = vm_data.ssh_username
+    if vm_data.ssh_password is not None:
+        vm.ssh_password = vm_data.ssh_password
     if vm_data.status:
         vm.status = VMStatus(vm_data.status)
     if vm_data.test_priority is not None:
