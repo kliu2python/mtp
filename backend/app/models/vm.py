@@ -34,6 +34,8 @@ class VirtualMachine(Base):
     platform = Column(SQLEnum(VMPlatform), nullable=False)
     version = Column(String, nullable=False)
     ip_address = Column(String, nullable=True)
+    ssh_username = Column(String, nullable=True)
+    ssh_password = Column(String, nullable=True)
     status = Column(SQLEnum(VMStatus), default=VMStatus.STOPPED)
     docker_container_id = Column(String, nullable=True)
     
@@ -63,6 +65,8 @@ class VirtualMachine(Base):
             "platform": self.platform.value if self.platform else None,
             "version": self.version,
             "ip_address": self.ip_address,
+            "ssh_username": self.ssh_username,
+            "ssh_password": self.ssh_password,
             "status": self.status.value if self.status else None,
             "docker_container_id": self.docker_container_id,
             "test_priority": self.test_priority,
