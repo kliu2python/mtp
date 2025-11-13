@@ -172,6 +172,16 @@ def build_ssh_command(device: Dict[str, str]) -> List[str]:
         identity_file = identity_file.strip()
         if identity_file:
             command.extend(["-i", identity_file])
+            command.extend(["-o", "IdentitiesOnly=yes"])
+    else:
+        command.extend(
+            [
+                "-o",
+                "PreferredAuthentications=password,keyboard-interactive",
+                "-o",
+                "PubkeyAuthentication=no",
+            ]
+        )
 
     extra_options = device.get("ssh_extra_options")
     if extra_options:
@@ -214,8 +224,24 @@ def run_ssh_command_once(device: Dict[str, str]) -> Dict[str, str]:
         "StrictHostKeyChecking=no",
         "-o",
         "UserKnownHostsFile=/dev/null",
-        f"{login}@{ip}",
     ]
+
+    identity_file = device.get("ssh_identity_file")
+    if identity_file:
+        identity_file = identity_file.strip()
+        if identity_file:
+            command.extend(["-i", identity_file, "-o", "IdentitiesOnly=yes"])
+    else:
+        command.extend(
+            [
+                "-o",
+                "PreferredAuthentications=password,keyboard-interactive",
+                "-o",
+                "PubkeyAuthentication=no",
+            ]
+        )
+
+    command.append(f"{login}@{ip}")
     command_str = " ".join(shlex.quote(part) for part in command)
 
     try:
