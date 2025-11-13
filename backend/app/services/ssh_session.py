@@ -12,12 +12,15 @@ import datetime as dt
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
+
+from functools import lru_cache
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "ssh_sessions"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -110,14 +113,49 @@ def translate_special_key(key: str) -> Optional[str]:
     return _control_key_value(normalized)
 
 
+SSH_BINARY_ENV_VAR = "SSH_BINARY"
+
+
+@lru_cache(maxsize=1)
+def _resolve_ssh_client() -> str:
+    """Return the path to the SSH client executable.
+
+    The backend primarily interacts with the system ``ssh`` binary. Some
+    environments used for automated testing do not provide the OpenSSH
+    client, so we try to surface a friendly error rather than crashing with
+    a ``FileNotFoundError`` when attempting to launch the process.
+    ``SSH_BINARY`` can be set to explicitly point at a different executable.
+    """
+
+    candidate = os.environ.get(SSH_BINARY_ENV_VAR, "ssh")
+    candidate = candidate.strip() or "ssh"
+
+    # Allow callers to provide an absolute or relative path to the
+    # executable.  ``shutil.which`` is only used for bare command names.
+    potential_path = Path(candidate)
+    if potential_path.is_file() and os.access(potential_path, os.X_OK):
+        return str(potential_path)
+
+    resolved = shutil.which(candidate)
+    if resolved:
+        return resolved
+
+    raise FileNotFoundError(
+        "SSH client executable not found. Install the OpenSSH client or set "
+        "the SSH_BINARY environment variable."
+    )
+
+
 def build_ssh_command(device: Dict[str, str]) -> List[str]:
     ip = device.get("device_ip", "").strip()
     login = device.get("device_login_name", "").strip()
     if not ip or not login:
         raise ValueError("Device IP and login name are required for SSH")
 
+    ssh_client = _resolve_ssh_client()
+
     command: List[str] = [
-        "ssh",
+        ssh_client,
         "-tt",
         "-o",
         "StrictHostKeyChecking=no",
@@ -166,8 +204,10 @@ def run_ssh_command_once(device: Dict[str, str]) -> Dict[str, str]:
     timestamp = dt.datetime.now()
     log_path = create_session_log_path(device, timestamp)
 
+    ssh_client = _resolve_ssh_client()
+
     command = [
-        "ssh",
+        ssh_client,
         "-o",
         "BatchMode=yes",
         "-o",
