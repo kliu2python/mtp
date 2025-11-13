@@ -1,12 +1,12 @@
 """
-FINAL SSH MODULE – PTY ONLY + HARD PASSWORD MODE (A1)
------------------------------------------------------
+FINAL SSH MODULE – PTY ONLY + PASSWORD/KEYBOARD-INTERACTIVE MODE (A1)
+-----------------------------------------------------------------------
 This version enforces:
 
 ✓ PTY always (for full terminal UI)
 ✓ Absolute disable of all key-based auth
 ✓ Absolute disable of ssh-agent (even inside PTY)
-✓ Only PASSWORD authentication
+✓ PASSWORD + KEYBOARD-INTERACTIVE authentication (for FortiGate compatibility)
 ✓ Auto-detect password prompt or silent fail
 ✓ Auto-send password exactly once
 ✓ Structured logging
@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from functools import lru_cache
 
-print(">>> SSH MODULE LOADED (A1: PTY + HARD PASSWORD ONLY)", flush=True)
+print(">>> SSH MODULE LOADED (A1: PTY + PASSWORD/KEYBOARD-INTERACTIVE)", flush=True)
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "ssh_sessions"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -107,11 +107,10 @@ def build_ssh_command(device: Dict[str, str]) -> List[str]:
         "-o", "UseKeychain=no",
         "-o", "IdentityAgent=none",
 
-        # 🔥 ONLY PASSWORD AUTH
+        # 🔥 PASSWORD + KEYBOARD-INTERACTIVE AUTH
         "-o", "PasswordAuthentication=yes",
-        "-o", "KbdInteractiveAuthentication=no",  # prevent fallback
-        "-o", "PreferredAuthentications=password",
-        "-o", "AuthenticationMethods=password",
+        "-o", "KbdInteractiveAuthentication=yes",
+        "-o", "PreferredAuthentications=keyboard-interactive,password",
 
         # 🔥 NO GSSAPI
         "-o", "GSSAPIAuthentication=no",
