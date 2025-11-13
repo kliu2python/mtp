@@ -81,23 +81,24 @@ class VirtualMachine(Base):
 
 
 class TestRecord(Base):
-    """Test execution record model"""
     __tablename__ = "test_records"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     vm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     test_suite = Column(String, nullable=False)
     test_case = Column(String, nullable=False)
-    status = Column(String, nullable=False)  # passed, failed, skipped, error
-    duration = Column(Float, default=0.0)  # seconds
+    status = Column(String, nullable=False)
+    duration = Column(Float, default=0.0)
     error_message = Column(String, nullable=True)
     screenshot_path = Column(String, nullable=True)
     log_path = Column(String, nullable=True)
-    metadata = Column(JSON, default=dict)
+
+    # FIXED HERE:
+    meta = Column("metadata", JSON, default=dict)
+
     executed_at = Column(DateTime, default=datetime.utcnow, index=True)
     
     def to_dict(self):
-        """Convert to dictionary"""
         return {
             "id": str(self.id),
             "vm_id": str(self.vm_id),
@@ -108,6 +109,7 @@ class TestRecord(Base):
             "error_message": self.error_message,
             "screenshot_path": self.screenshot_path,
             "log_path": self.log_path,
-            "metadata": self.metadata,
+            "metadata": self.meta,          # return original key
             "executed_at": self.executed_at.isoformat() if self.executed_at else None
         }
+

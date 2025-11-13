@@ -40,7 +40,7 @@ import './App.css';
 
 const { Header, Content, Sider } = Layout;
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://10.160.24.60:8000';
 
 // Dashboard Component
 const Dashboard = () => {
