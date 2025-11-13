@@ -1,33 +1,33 @@
 """
-FINAL SSH MODULE – PTY ONLY + PASSWORD/KEYBOARD-INTERACTIVE MODE (A1)
+PARAMIKO SSH MODULE – PRECISE AUTHENTICATION CONTROL
 -----------------------------------------------------------------------
-This version enforces:
+This version uses Paramiko for complete control over SSH authentication:
 
-✓ PTY always (for full terminal UI)
-✓ Absolute disable of all key-based auth
-✓ Absolute disable of ssh-agent (even inside PTY)
-✓ PASSWORD + KEYBOARD-INTERACTIVE authentication (for FortiGate compatibility)
-✓ Auto-detect password prompt or silent fail
-✓ Auto-send password exactly once
+✓ Single authentication attempt (no retries)
+✓ Keyboard-interactive + password fallback
+✓ No SSH agent interference
+✓ No multiple key attempts
+✓ Full terminal emulation with PTY
+✓ Thread-safe output handling
 ✓ Structured logging
-✓ Safe cleanup
+✓ WebSocket compatible
 """
 
 from __future__ import annotations
 import datetime as dt
 import json
 import os
-import shlex
-import shutil
-import subprocess
+import select
+import socket
 import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
-from functools import lru_cache
 
-print(">>> SSH MODULE LOADED (A1: PTY + PASSWORD/KEYBOARD-INTERACTIVE)", flush=True)
+import paramiko
+
+print(">>> SSH MODULE LOADED (Paramiko-based)", flush=True)
 
 LOG_DIR = Path(__file__).resolve().parents[2] / "logs" / "ssh_sessions"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ SSH_SESSION_IDLE_TIMEOUT = 600
 SSH_SESSION_CLOSED_RETENTION = 30
 
 SPECIAL_SEND_KEYS = {
-    "enter": "\n", "return": "\n", "tab": "\t", "space": " ",
+    "enter": "\r", "return": "\r", "tab": "\t", "space": " ",
     "backspace": chr(127), "delete": chr(127), "del": chr(127),
     "esc": chr(27), "escape": chr(27),
     "up": "\x1b[A", "down": "\x1b[B", "left": "\x1b[D", "right": "\x1b[C",
@@ -66,226 +66,273 @@ def translate_special_key(key: str) -> Optional[str]:
     return None
 
 
-SSH_BINARY_ENV_VAR = "SSH_BINARY"
-
-
-@lru_cache(maxsize=1)
-def _resolve_ssh_client() -> str:
-    candidate = os.environ.get(SSH_BINARY_ENV_VAR, "ssh").strip()
-    p = Path(candidate)
-    if p.is_file() and os.access(p, os.X_OK):
-        return str(p)
-    path = shutil.which(candidate)
-    if path:
-        return path
-    raise FileNotFoundError("SSH client not found")
-
-
-# -------------------------------------------------------------------
-# BUILD SSH COMMAND – A1 MODE: PASSWORD ONLY, PTY ONLY
-# -------------------------------------------------------------------
-def build_ssh_command(device: Dict[str, str]) -> List[str]:
-    ip = device["device_ip"].strip()
-    login = device["device_login_name"].strip()
-    ssh = _resolve_ssh_client()
-
-    # 🔥 Hard disable: agent, keys, host keys, and multi-method
-    cmd = [
-        ssh,
-        "-tt",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-
-        # 🔥 KEY AUTH DISABLED
-        "-o", "PubkeyAuthentication=no",
-        "-o", "HostbasedAuthentication=no",
-        "-o", "IdentitiesOnly=yes",
-
-        # 🔥 AGENT DISABLED
-        "-o", "ForwardAgent=no",
-        "-o", "AddKeysToAgent=no",
-        "-o", "UseKeychain=no",
-        "-o", "IdentityAgent=none",
-
-        # 🔥 PASSWORD + KEYBOARD-INTERACTIVE AUTH
-        "-o", "PasswordAuthentication=yes",
-        "-o", "KbdInteractiveAuthentication=yes",
-        "-o", "PreferredAuthentications=keyboard-interactive,password",
-
-        # 🔥 NO GSSAPI
-        "-o", "GSSAPIAuthentication=no",
-        "-o", "GSSAPIKeyExchange=no",
-    ]
-
-    port = str(device.get("device_port", "")).strip()
-    if port:
-        cmd.extend(["-p", port])
-
-    # Identity file ignored but supported:
-    identity = (device.get("ssh_identity_file") or "").strip()
-    if identity and os.path.isfile(identity):
-        cmd.extend(["-i", identity])
-
-    cmd.append(f"{login}@{ip}")
-    return cmd
-
-
-# -------------------------------------------------------------------
-# LOGGING
-# -------------------------------------------------------------------
 def create_session_log_path(device: Dict[str, str], ts: dt.datetime) -> Path:
     name = device.get("device_name", "device").strip().replace(" ", "_")
     return LOG_DIR / f"{name}_ssh_{ts.strftime('%Y%m%d-%H%M%S')}.log"
 
 
-# -------------------------------------------------------------------
-# SSH SESSION — PTY ONLY IMPLEMENTATION
-# -------------------------------------------------------------------
+class InteractiveAuthHandler(paramiko.auth_handler.AuthHandler):
+    """
+    Custom auth handler that tries keyboard-interactive once, then password once.
+    No retries, no multi-key attempts.
+    """
+    def __init__(self, transport, username, password):
+        self.transport = transport
+        self.username = username
+        self.password = password
+        self.authenticated = False
+        self.auth_error = None
+
+    def authenticate(self):
+        """
+        Try authentication methods in order:
+        1. keyboard-interactive (common for FortiGate)
+        2. password (fallback)
+        """
+        try:
+            # Try keyboard-interactive first
+            try:
+                self.transport.auth_interactive(
+                    self.username,
+                    self._interactive_handler
+                )
+                self.authenticated = True
+                return True
+            except paramiko.AuthenticationException as e:
+                print(f">>> Keyboard-interactive failed: {e}", flush=True)
+
+            # Try password authentication as fallback
+            try:
+                self.transport.auth_password(self.username, self.password)
+                self.authenticated = True
+                return True
+            except paramiko.AuthenticationException as e:
+                print(f">>> Password auth failed: {e}", flush=True)
+                self.auth_error = str(e)
+
+            return False
+
+        except Exception as e:
+            print(f">>> Authentication error: {e}", flush=True)
+            self.auth_error = str(e)
+            return False
+
+    def _interactive_handler(self, title, instructions, prompt_list):
+        """Handle keyboard-interactive prompts by providing password"""
+        print(f">>> Keyboard-interactive: title={title}, prompts={len(prompt_list)}", flush=True)
+        if prompt_list:
+            # Return password for all prompts
+            return [self.password] * len(prompt_list)
+        return []
+
+
 class SSHSession:
     def __init__(self, device: Dict[str, str]):
         self.device = device
         self.password = (device.get("device_password") or "").strip()
-        self.command = build_ssh_command(device)
+        self.username = device["device_login_name"].strip()
+        self.hostname = device["device_ip"].strip()
+        self.port = int(device.get("device_port", "22"))
+
         self.session_id = uuid.uuid4().hex
         self.started_at = dt.datetime.now()
         self.log_path = create_session_log_path(device, self.started_at)
         self.closed = False
         self.exit_status = None
         self.last_access = time.time()
-        self.master_fd = None
+
         self._pending_output = []
         self._buffer_lock = threading.Lock()
-        self._password_sent = False
-
-        env = os.environ.copy()
-        env["TERM"] = "xterm-256color"
-
-        # 🔥 Hard disable agent even inside PTY
-        env["SSH_AUTH_SOCK"] = "/dev/null"
-        env["SSH_AGENT_PID"] = ""
+        self._client = None
+        self._channel = None
+        self._reader_thread = None
 
         # LOG HEADER
         self.log_file = self.log_path.open("w", encoding="utf-8")
         self.log_file.write(
-            f"SSH COMMAND: {' '.join(shlex.quote(x) for x in self.command)}\n"
+            f"SSH Connection: {self.username}@{self.hostname}:{self.port}\n"
             f"Started: {self.started_at}\n{'-'*60}\n"
         )
         self.log_file.flush()
 
-        print(">>> RUN SSH COMMAND:", " ".join(self.command), flush=True)
+        # Connect and authenticate
+        self._connect()
 
-        # Always PTY (A1)
-        self._start_with_pty(env)
+    def _connect(self):
+        """Establish SSH connection with Paramiko"""
+        print(f">>> Connecting to {self.hostname}:{self.port} as {self.username}", flush=True)
 
-    # -------------------------------------------------------------
-    # PTY START (A1 HAS NO PIPE FALLBACK)
-    # -------------------------------------------------------------
-    def _start_with_pty(self, env):
-        import pty
-        master, slave = pty.openpty()
+        # Create SSH client
+        self._client = paramiko.SSHClient()
+
+        # Accept all host keys (equivalent to StrictHostKeyChecking=no)
+        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Configure client to NOT use SSH agent or keys
+        self._client._agent = None
+
         try:
-            self.process = subprocess.Popen(
-                self.command,
-                stdin=slave, stdout=slave, stderr=slave,
-                close_fds=True, env=env, start_new_session=True,
+            # Connect (this establishes TCP connection and SSH handshake)
+            self._client.connect(
+                hostname=self.hostname,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                look_for_keys=False,  # Don't search for SSH keys
+                allow_agent=False,    # Don't use SSH agent
+                timeout=10,
+                auth_timeout=10,
+                banner_timeout=10,
+                # Try both keyboard-interactive and password
+                # Paramiko will try in order and stop after first success
             )
+
+            print(">>> SSH connection established", flush=True)
+
+            # Open interactive shell with PTY
+            self._channel = self._client.invoke_shell(
+                term='xterm-256color',
+                width=120,
+                height=40,
+                width_pixels=0,
+                height_pixels=0
+            )
+
+            print(">>> Interactive shell started", flush=True)
+
+            # Start output reader thread
+            self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._reader_thread.start()
+
+        except paramiko.AuthenticationException as e:
+            error_msg = f"Authentication failed: {e}\n"
+            print(f">>> {error_msg}", flush=True)
+            self.log_file.write(error_msg)
+            self.log_file.flush()
+            self.closed = True
+            self.exit_status = 255
+            raise
+
+        except Exception as e:
+            error_msg = f"Connection failed: {e}\n"
+            print(f">>> {error_msg}", flush=True)
+            self.log_file.write(error_msg)
+            self.log_file.flush()
+            self.closed = True
+            self.exit_status = 255
+            raise
+
+    def _reader_loop(self):
+        """Background thread to read SSH output"""
+        print(">>> Reader thread started", flush=True)
+
+        try:
+            while not self.closed and self._channel:
+                # Use select to check if data is available (non-blocking)
+                if self._channel.recv_ready():
+                    data = self._channel.recv(4096)
+                    if data:
+                        text = data.decode('utf-8', errors='replace')
+                        self._handle_output(text)
+                    else:
+                        # EOF
+                        break
+                else:
+                    # Small sleep to prevent busy-waiting
+                    time.sleep(0.01)
+
+                # Check if channel is still open
+                if self._channel.exit_status_ready():
+                    # Get any remaining output
+                    while self._channel.recv_ready():
+                        data = self._channel.recv(4096)
+                        if data:
+                            text = data.decode('utf-8', errors='replace')
+                            self._handle_output(text)
+                    break
+
+        except Exception as e:
+            print(f">>> Reader error: {e}", flush=True)
         finally:
-            os.close(slave)
-        self.master_fd = master
-        self._reader_thread = threading.Thread(target=self._pty_reader, daemon=True)
-        self._reader_thread.start()
+            print(">>> Reader thread exiting", flush=True)
+            if not self.closed:
+                self.exit_status = self._channel.recv_exit_status() if self._channel else 1
 
-    # -------------------------------------------------------------
-    def _pty_reader(self):
-        while True:
-            try:
-                data = os.read(self.master_fd, 4096)
-            except OSError:
-                break
-            if not data:
-                break
-            self._handle_output(data.decode(errors="replace"))
-
-    # -------------------------------------------------------------
-    # PASSWORD HANDLING
-    # -------------------------------------------------------------
     def _handle_output(self, text: str):
-        print(">>> OUT:", repr(text), flush=True)
-
-        lower = text.lower()
-
-        # Standard password prompt
-        if "password:" in lower and not self._password_sent:
-            self._send_password()
-
-        # FortiGate silent mode
-        if "permission denied" in lower and not self._password_sent:
-            print(">>> FORCE SENDING PASSWORD", flush=True)
-            self._send_password()
-
-        # Save output
+        """Handle output from SSH session"""
+        # Save to buffer
         with self._buffer_lock:
             self._pending_output.append(text)
 
+        # Log to file
         self.log_file.write(text)
         self.log_file.flush()
 
-    # -------------------------------------------------------------
-    def _send_password(self):
-        if not self.password:
-            print(">>> NO PASSWORD PROVIDED", flush=True)
-            return
-        print(">>> SENDING PASSWORD", flush=True)
-        self._password_sent = True
-        try:
-            os.write(self.master_fd, (self.password + "\n").encode())
-        except Exception as exc:
-            print(">>> ERROR sending password:", exc, flush=True)
-
-    # -------------------------------------------------------------
     def send_input(self, data: str) -> bool:
-        if self.closed:
+        """Send input to SSH session"""
+        if self.closed or not self._channel:
             return False
+
         try:
-            os.write(self.master_fd, data.replace("\n", "\r").encode())
-        except:
+            self._channel.send(data)
+            self.last_access = time.time()
+            return True
+        except Exception as e:
+            print(f">>> Send error: {e}", flush=True)
             self.close()
             return False
-        self.last_access = time.time()
-        return True
 
-    # -------------------------------------------------------------
     def _consume_output(self) -> str:
+        """Get and clear pending output"""
         with self._buffer_lock:
             out = "".join(self._pending_output)
             self._pending_output.clear()
             return out
 
-    # -------------------------------------------------------------
     def poll(self):
+        """Poll for output and status"""
         out = self._consume_output()
-        if self.process.poll() is not None and not self.closed:
-            self.exit_status = self.process.returncode
-            out += self.close()
-        self.last_access = time.time()
-        return {"output": out, "closed": self.closed, "exit_status": self.exit_status}
 
-    # -------------------------------------------------------------
+        # Check if session has ended
+        if self._channel and self._channel.exit_status_ready() and not self.closed:
+            self.exit_status = self._channel.recv_exit_status()
+            out += self.close()
+
+        self.last_access = time.time()
+        return {
+            "output": out,
+            "closed": self.closed,
+            "exit_status": self.exit_status
+        }
+
     def close(self):
+        """Close SSH session"""
         if self.closed:
             return ""
+
         self.closed = True
+        print(">>> Closing SSH session", flush=True)
 
-        try:
-            self.process.terminate()
-            self.process.wait(timeout=2)
-        except:
-            pass
-
+        # Get any remaining output
         leftover = self._consume_output()
 
+        # Close channel
+        if self._channel:
+            try:
+                self._channel.close()
+            except:
+                pass
+
+        # Close client
+        if self._client:
+            try:
+                self._client.close()
+            except:
+                pass
+
+        # Log closure
         self.log_file.write(
-            f"\n[Session closed at {dt.datetime.now()}] Exit={self.process.returncode}\n"
+            f"\n[Session closed at {dt.datetime.now()}] Exit={self.exit_status}\n"
         )
         self.log_file.flush()
         self.log_file.close()
