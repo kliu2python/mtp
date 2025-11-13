@@ -1,0 +1,240 @@
+# =============================================================================
+# Android 13 FTM Testing Configuration
+# =============================================================================
+# Lab Configuration for Android FortiToken Mobile Automation Testing
+# Compatible with: Mobile Test Pilot + Jenkins Docker Execution
+# Platform: Android 13.x
+# =============================================================================
+
+# ----------------------------- Lab Information --------------------------------
+lab_info:
+  name: "Android 13 FTM Testing Lab"
+  location: "Jenkins Slave Node - Docker Environment"
+  owner: "Mobile Automation Team"
+  description: "Android 13 devices for FortiToken Mobile testing"
+  updated: "2025-11-13"
+
+# ----------------------------- Device Configuration ---------------------------
+devices:
+  # Physical Android Device
+  - device_id: "android_device_01"
+    device_name: "Google Pixel 7"
+    platform: "Android"
+    platform_version: "13"
+    udid: "1A2B3C4D5E6F"
+    model: "Pixel 7"
+    manufacturer: "Google"
+    connection_type: "USB"
+    appium_port: 4723
+    system_port: 8200
+    capabilities:
+      - "push_notifications"
+      - "qr_code_scanner"
+      - "biometric_auth"
+      - "nfc"
+    status: "available"
+    adb_connect: "192.168.1.100:5555"
+
+  # Android Emulator
+  - device_id: "android_emulator_01"
+    device_name: "Pixel_API_33"
+    platform: "Android"
+    platform_version: "13.0"
+    udid: "emulator-5554"
+    model: "Pixel_7_API_33"
+    manufacturer: "Google"
+    connection_type: "Emulator"
+    appium_port: 4724
+    system_port: 8201
+    avd_name: "Pixel_7_API_33"
+    capabilities:
+      - "push_notifications"
+      - "qr_code_scanner"
+    status: "available"
+
+  # Samsung Galaxy Device
+  - device_id: "android_device_02"
+    device_name: "Samsung Galaxy S22"
+    platform: "Android"
+    platform_version: "13"
+    udid: "RF8N123ABCD"
+    model: "SM-S901U"
+    manufacturer: "Samsung"
+    connection_type: "USB"
+    appium_port: 4725
+    system_port: 8202
+    capabilities:
+      - "push_notifications"
+      - "qr_code_scanner"
+      - "biometric_auth"
+      - "nfc"
+      - "samsung_knox"
+    status: "available"
+
+# ----------------------------- VM Configuration -------------------------------
+virtual_machines:
+  # FortiAuthenticator VM
+  - vm_id: "fac_vm_01"
+    vm_name: "FortiAuthenticator-6.5"
+    vm_type: "FortiAuthenticator"
+    ip_address: "10.160.16.100"
+    hostname: "fac-lab-01.fortinet.com"
+    port: 443
+    ssh_port: 22
+    credentials:
+      username: "admin"
+      password: "fortinet123"
+      api_token: "api_token_placeholder"
+    version: "6.5.4"
+    features:
+      - "two_factor_auth"
+      - "mobile_token"
+      - "push_notification"
+    status: "running"
+
+  # FortiGate VM
+  - vm_id: "fgt_vm_01"
+    vm_name: "FortiGate-7.4"
+    vm_type: "FortiGate"
+    ip_address: "10.160.16.101"
+    hostname: "fgt-lab-01.fortinet.com"
+    port: 443
+    ssh_port: 22
+    credentials:
+      username: "admin"
+      password: "fortinet123"
+    version: "7.4.2"
+    features:
+      - "ssl_vpn"
+      - "two_factor_auth"
+      - "fortitoken_integration"
+    status: "running"
+
+# ----------------------------- Network Configuration --------------------------
+network:
+  subnet: "10.160.16.0/24"
+  gateway: "10.160.16.1"
+  dns_servers:
+    - "8.8.8.8"
+    - "8.8.4.4"
+  vpn_enabled: true
+  proxy_enabled: false
+  wifi_ssid: "FTM_TestLab"
+  wifi_password: "TestLab123"
+
+# ----------------------------- Test Configuration -----------------------------
+test_settings:
+  # Timeout Settings
+  timeouts:
+    test_case: 300  # 5 minutes per test case
+    test_suite: 3600  # 1 hour per test suite
+    element_wait: 30  # 30 seconds for element waits
+    page_load: 60  # 60 seconds for page loads
+    app_launch: 20  # 20 seconds for app launch
+
+  # Retry Settings
+  retries:
+    max_retries: 3
+    retry_delay: 5  # seconds
+    screenshot_on_failure: true
+    clear_app_data_on_retry: true
+
+  # Reporting
+  reporting:
+    allure_enabled: true
+    allure_results_dir: "/pytest-automation/allure-results"
+    screenshot_dir: "/pytest-automation/screenshots"
+    log_level: "INFO"
+    capture_video: false
+    capture_logcat: true
+
+  # Test Data
+  test_data:
+    default_pin: "1234"
+    test_user_prefix: "ftm_user"
+    test_group: "ftm_test_group"
+    apk_path: "/test_files/mobile-apps/android/FortiTokenMobile.apk"
+
+  # Appium Settings
+  appium:
+    auto_grant_permissions: true
+    no_reset: false
+    full_reset: false
+    auto_accept_alerts: true
+    auto_dismiss_alerts: false
+    unicode_keyboard: true
+    reset_keyboard: true
+
+# ----------------------------- Docker Configuration ---------------------------
+docker:
+  registry: "10.160.16.60"
+  image: "pytest-automation/pytest_automation"
+  tag: "latest"
+  volumes:
+    - source: "/home/jenkins/custom_config"
+      target: "/test_files"
+      mode: "ro"
+    - source: "${WORKSPACE}/allure-results"
+      target: "/pytest-automation/allure-results"
+      mode: "rw"
+    - source: "/dev/bus/usb"
+      target: "/dev/bus/usb"
+      mode: "rw"
+  network_mode: "host"
+  shm_size: "2g"
+  privileged: true  # Required for USB device access
+
+# ----------------------------- Jenkins Configuration --------------------------
+jenkins:
+  job_name: "Android_FTM_Automation"
+  node_label: "android-automation"
+  workspace: "/home/jenkins/workspace/Android_FTM_Automation"
+  build_triggers:
+    - "nightly"
+    - "on_commit"
+  notifications:
+    email: "mobile-automation-team@fortinet.com"
+    slack_channel: "#mobile-automation"
+
+# ----------------------------- Test Markers -----------------------------------
+# Pytest markers for test selection
+markers:
+  platform: "android_ftm"
+  feature: "fac_ftc_token"
+  type: "functional"
+  priority: "high"
+  tags:
+    - "smoke"
+    - "regression"
+    - "integration"
+
+# ----------------------------- Feature Flags ----------------------------------
+features:
+  push_notification_test: true
+  qr_code_activation: true
+  biometric_authentication: true
+  offline_mode_test: true
+  multi_device_sync: false
+  nfc_activation: true
+
+# ----------------------------- ADB Configuration ------------------------------
+adb:
+  adb_path: "/usr/bin/adb"
+  kill_adb_on_start: false
+  adb_server_port: 5037
+  connect_devices:
+    - "192.168.1.100:5555"  # Physical device over WiFi
+
+# ----------------------------- Notes ------------------------------------------
+# Usage Instructions:
+# 1. Copy this file to /test_files/mobile_auto/ directory
+# 2. Update device UDIDs and VM credentials
+# 3. Connect Android devices via USB or WiFi ADB
+# 4. Ensure USB debugging is enabled on devices
+# 5. Run tests using: pytest --lab_config=/test_files/mobile_auto/android13_ftm_testing_config.yml
+#
+# Maintenance:
+# - Update device list when adding/removing devices
+# - Keep VM credentials secure (consider using secrets manager)
+# - Review timeout settings based on test performance
+# - Verify ADB connection before running tests

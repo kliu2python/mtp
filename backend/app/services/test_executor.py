@@ -4,6 +4,7 @@ import logging
 import subprocess
 import asyncio
 import time
+import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -122,15 +123,22 @@ class TestExecutor:
             logger.info(f"Task {task.task_id} acquired node {node.name}")
 
             try:
-                # Get VM details
-                vm_id = task.config.get("vm_id")
-                vm = db.get(VirtualMachine, vm_id)
+                # Check execution method (docker or ssh)
+                execution_method = task.config.get("execution_method", "ssh")
 
-                if not vm:
-                    raise Exception(f"VM {vm_id} not found")
+                if execution_method == "docker":
+                    # Execute test in Docker container
+                    result = await self._run_docker_test_on_node(node, task, db)
+                else:
+                    # Get VM details for SSH execution
+                    vm_id = task.config.get("vm_id")
+                    vm = db.get(VirtualMachine, vm_id)
 
-                # Execute test on the node
-                result = await self._run_test_on_node(node, vm, task, db)
+                    if not vm:
+                        raise Exception(f"VM {vm_id} not found")
+
+                    # Execute test on the node via SSH
+                    result = await self._run_test_on_node(node, vm, task, db)
 
                 task.status = "completed"
                 task.progress = 100
@@ -262,6 +270,196 @@ class TestExecutor:
                 "test_suite": test_suite,
                 "vm_id": str(vm.id),
                 "node_id": str(node.id)
+            }
+
+    async def _run_docker_test_on_node(
+        self,
+        node: JenkinsNode,
+        task: TestTask,
+        db: Session
+    ) -> Dict[str, Any]:
+        """
+        Run test commands in Docker container on a Jenkins slave node via SSH
+        This method implements the Jenkins-style Docker execution pattern
+
+        Args:
+            node: Jenkins node to run tests on
+            task: Test task
+            db: Database session
+
+        Returns:
+            Test result dictionary
+        """
+        # Extract configuration from task
+        test_suite = task.config.get("test_suite", "suites/mobile/suites/ftm/ios/tests")
+        test_markers = task.config.get("test_markers", "ios_ftm and functional")
+        lab_config_path = task.config.get("lab_config", "/test_files/mobile_auto/ios16_ftm_testing_config.yml")
+        platform = task.config.get("platform", "ios")  # ios or android
+
+        # Docker configuration
+        docker_registry = task.config.get("docker_registry", "10.160.16.60")
+        docker_image = task.config.get("docker_image", "pytest-automation/pytest_automation")
+        docker_tag = task.config.get("docker_tag", "latest")
+        container_name = task.config.get("container_name", f"mtp_test_{task.task_id[:8]}")
+
+        # Workspace configuration
+        workspace = task.config.get("workspace", "/home/jenkins/workspace/mobile_automation")
+        config_mount_source = task.config.get("config_mount", "/home/jenkins/custom_config")
+
+        # Build Docker execution script
+        docker_script = f"""#!/bin/bash
+set -e
+
+# Configuration
+JOB_BASE_NAME="{container_name}"
+WORKSPACE="{workspace}"
+ALLURE_RESULTS_DIR="${{WORKSPACE}}/allure-results"
+DOCKER_IMAGE="{docker_registry}/{docker_image}:{docker_tag}"
+
+# Cleanup
+echo "Cleaning up previous test results..."
+rm -rf ${{ALLURE_RESULTS_DIR}} || true
+mkdir -p ${{ALLURE_RESULTS_DIR}}
+
+echo "Stopping existing containers..."
+docker kill $(docker ps -aqf name=${{JOB_BASE_NAME}}) 2>/dev/null || true
+docker rm $(docker ps -aqf name=${{JOB_BASE_NAME}}) 2>/dev/null || true
+
+# Pull Docker image
+echo "Pulling Docker image: ${{DOCKER_IMAGE}}"
+docker pull ${{DOCKER_IMAGE}}
+
+# Run tests in Docker
+echo "Starting test execution..."
+"""
+
+        # Add Docker run command based on platform
+        if platform.lower() == "android":
+            docker_script += f"""
+docker run --rm \\
+    --name="${{JOB_BASE_NAME}}" \\
+    -v {config_mount_source}:/test_files:ro \\
+    -v ${{ALLURE_RESULTS_DIR}}:/pytest-automation/allure-results:rw \\
+    --env="DISPLAY" \\
+    --env="QT_X11_NO_MITSHM=1" \\
+    -v /tmp/.X11-unix/:/tmp/.X11-unix:rw \\
+    --shm-size=2g \\
+    --network=host \\
+    --privileged \\
+    -v /dev/bus/usb:/dev/bus/usb:rw \\
+    ${{DOCKER_IMAGE}} /bin/bash -c \\
+    "python3 -m pytest {test_suite} -s -m '{test_markers}' \\
+    --lab_config={lab_config_path} \\
+    --alluredir=/pytest-automation/allure-results \\
+    --tb=short \\
+    --verbose"
+"""
+        else:  # iOS or default
+            docker_script += f"""
+docker run --rm \\
+    --name="${{JOB_BASE_NAME}}" \\
+    -v {config_mount_source}:/test_files:ro \\
+    -v ${{ALLURE_RESULTS_DIR}}:/pytest-automation/allure-results:rw \\
+    --env="DISPLAY" \\
+    --env="QT_X11_NO_MITSHM=1" \\
+    -v /tmp/.X11-unix/:/tmp/.X11-unix:rw \\
+    --shm-size=2g \\
+    --network=host \\
+    ${{DOCKER_IMAGE}} /bin/bash -c \\
+    "python3 -m pytest {test_suite} -s -m '{test_markers}' \\
+    --lab_config={lab_config_path} \\
+    --alluredir=/pytest-automation/allure-results \\
+    --tb=short \\
+    --verbose"
+"""
+
+        docker_script += """
+# Capture exit code
+EXIT_CODE=$?
+
+# Print results
+echo "Test execution completed with exit code: ${EXIT_CODE}"
+if [ -d "${ALLURE_RESULTS_DIR}" ]; then
+    RESULT_COUNT=$(ls -1 ${ALLURE_RESULTS_DIR}/*.json 2>/dev/null | wc -l)
+    echo "Total test results: ${RESULT_COUNT}"
+fi
+
+exit ${EXIT_CODE}
+"""
+
+        # Build SSH command to execute the script on the node
+        ssh_cmd = [
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=10",
+            "-p", str(node.port),
+        ]
+
+        if node.ssh_key:
+            ssh_cmd.extend(["-i", node.ssh_key])
+        elif node.password:
+            ssh_cmd = ["sshpass", "-p", node.password] + ssh_cmd
+
+        ssh_cmd.append(f"{node.username}@{node.host}")
+        ssh_cmd.append(docker_script)
+
+        # Execute test
+        task.progress = 50
+        logger.info(f"Task {task.task_id}: Executing Docker-based tests on node {node.name}")
+
+        try:
+            # Run the Docker test script with timeout
+            process = await asyncio.create_subprocess_exec(
+                *ssh_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Wait for completion with timeout
+            timeout = task.config.get("timeout", 3600)  # Default 1 hour
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=timeout
+            )
+
+            task.progress = 90
+
+            # Parse results
+            result = {
+                "status": "passed" if process.returncode == 0 else "failed",
+                "return_code": process.returncode,
+                "stdout": stdout.decode() if stdout else "",
+                "stderr": stderr.decode() if stderr else "",
+                "test_suite": test_suite,
+                "test_markers": test_markers,
+                "platform": platform,
+                "docker_image": f"{docker_registry}/{docker_image}:{docker_tag}",
+                "container_name": container_name,
+                "node_id": str(node.id),
+                "execution_method": "docker"
+            }
+
+            logger.info(f"Task {task.task_id}: Docker test completed with return code {process.returncode}")
+            return result
+
+        except asyncio.TimeoutError:
+            logger.error(f"Task {task.task_id}: Docker test execution timed out")
+            return {
+                "status": "failed",
+                "error": f"Docker test execution timed out after {timeout} seconds",
+                "test_suite": test_suite,
+                "node_id": str(node.id),
+                "execution_method": "docker"
+            }
+        except Exception as e:
+            logger.error(f"Task {task.task_id}: Docker test execution error: {e}")
+            return {
+                "status": "failed",
+                "error": str(e),
+                "test_suite": test_suite,
+                "node_id": str(node.id),
+                "execution_method": "docker"
             }
 
     async def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:

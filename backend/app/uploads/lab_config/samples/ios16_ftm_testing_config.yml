@@ -1,0 +1,186 @@
+# =============================================================================
+# iOS 16 FTM Testing Configuration
+# =============================================================================
+# Lab Configuration for iOS FortiToken Mobile Automation Testing
+# Compatible with: Mobile Test Pilot + Jenkins Docker Execution
+# Platform: iOS 16.x
+# =============================================================================
+
+# ----------------------------- Lab Information --------------------------------
+lab_info:
+  name: "iOS 16 FTM Testing Lab"
+  location: "Jenkins Slave Node - Docker Environment"
+  owner: "Mobile Automation Team"
+  description: "iOS 16 devices for FortiToken Mobile testing"
+  updated: "2025-11-13"
+
+# ----------------------------- Device Configuration ---------------------------
+devices:
+  # Physical iOS Device
+  - device_id: "ios_device_01"
+    device_name: "iPhone 13 Pro"
+    platform: "iOS"
+    platform_version: "16.7"
+    udid: "00008110-001234567890001E"
+    model: "iPhone13,3"
+    connection_type: "USB"
+    appium_port: 4724
+    wda_port: 8100
+    capabilities:
+      - "push_notifications"
+      - "qr_code_scanner"
+      - "biometric_auth"
+    status: "available"
+
+  # iOS Simulator
+  - device_id: "ios_simulator_01"
+    device_name: "iPhone 14 Simulator"
+    platform: "iOS"
+    platform_version: "16.4"
+    udid: "F1A2B3C4-D5E6-7890-ABCD-EF1234567890"
+    model: "iPhone14,7"
+    connection_type: "Simulator"
+    appium_port: 4725
+    wda_port: 8101
+    capabilities:
+      - "push_notifications"
+      - "qr_code_scanner"
+    status: "available"
+
+# ----------------------------- VM Configuration -------------------------------
+virtual_machines:
+  # FortiAuthenticator VM
+  - vm_id: "fac_vm_01"
+    vm_name: "FortiAuthenticator-6.5"
+    vm_type: "FortiAuthenticator"
+    ip_address: "10.160.16.100"
+    hostname: "fac-lab-01.fortinet.com"
+    port: 443
+    ssh_port: 22
+    credentials:
+      username: "admin"
+      password: "fortinet123"
+      api_token: "api_token_placeholder"
+    version: "6.5.4"
+    features:
+      - "two_factor_auth"
+      - "mobile_token"
+      - "push_notification"
+    status: "running"
+
+  # FortiGate VM
+  - vm_id: "fgt_vm_01"
+    vm_name: "FortiGate-7.4"
+    vm_type: "FortiGate"
+    ip_address: "10.160.16.101"
+    hostname: "fgt-lab-01.fortinet.com"
+    port: 443
+    ssh_port: 22
+    credentials:
+      username: "admin"
+      password: "fortinet123"
+    version: "7.4.2"
+    features:
+      - "ssl_vpn"
+      - "two_factor_auth"
+      - "fortitoken_integration"
+    status: "running"
+
+# ----------------------------- Network Configuration --------------------------
+network:
+  subnet: "10.160.16.0/24"
+  gateway: "10.160.16.1"
+  dns_servers:
+    - "8.8.8.8"
+    - "8.8.4.4"
+  vpn_enabled: true
+  proxy_enabled: false
+
+# ----------------------------- Test Configuration -----------------------------
+test_settings:
+  # Timeout Settings
+  timeouts:
+    test_case: 300  # 5 minutes per test case
+    test_suite: 3600  # 1 hour per test suite
+    element_wait: 30  # 30 seconds for element waits
+    page_load: 60  # 60 seconds for page loads
+
+  # Retry Settings
+  retries:
+    max_retries: 3
+    retry_delay: 5  # seconds
+    screenshot_on_failure: true
+
+  # Reporting
+  reporting:
+    allure_enabled: true
+    allure_results_dir: "/pytest-automation/allure-results"
+    screenshot_dir: "/pytest-automation/screenshots"
+    log_level: "INFO"
+    capture_video: false
+
+  # Test Data
+  test_data:
+    default_pin: "1234"
+    test_user_prefix: "ftm_user"
+    test_group: "ftm_test_group"
+
+# ----------------------------- Docker Configuration ---------------------------
+docker:
+  registry: "10.160.16.60"
+  image: "pytest-automation/pytest_automation"
+  tag: "latest"
+  volumes:
+    - source: "/home/jenkins/custom_config"
+      target: "/test_files"
+      mode: "ro"
+    - source: "${WORKSPACE}/allure-results"
+      target: "/pytest-automation/allure-results"
+      mode: "rw"
+  network_mode: "host"
+  shm_size: "2g"
+  privileged: false
+
+# ----------------------------- Jenkins Configuration --------------------------
+jenkins:
+  job_name: "iOS_FTM_Automation"
+  node_label: "ios-automation"
+  workspace: "/home/jenkins/workspace/iOS_FTM_Automation"
+  build_triggers:
+    - "nightly"
+    - "on_commit"
+  notifications:
+    email: "mobile-automation-team@fortinet.com"
+    slack_channel: "#mobile-automation"
+
+# ----------------------------- Test Markers -----------------------------------
+# Pytest markers for test selection
+markers:
+  platform: "ios_ftm"
+  feature: "fac_ftc_token"
+  type: "functional"
+  priority: "high"
+  tags:
+    - "smoke"
+    - "regression"
+    - "integration"
+
+# ----------------------------- Feature Flags ----------------------------------
+features:
+  push_notification_test: true
+  qr_code_activation: true
+  biometric_authentication: true
+  offline_mode_test: false
+  multi_device_sync: false
+
+# ----------------------------- Notes ------------------------------------------
+# Usage Instructions:
+# 1. Copy this file to /test_files/mobile_auto/ directory
+# 2. Update device UDIDs and VM credentials
+# 3. Ensure network connectivity between devices and VMs
+# 4. Run tests using: pytest --lab_config=/test_files/mobile_auto/ios16_ftm_testing_config.yml
+#
+# Maintenance:
+# - Update device list when adding/removing devices
+# - Keep VM credentials secure (consider using secrets manager)
+# - Review timeout settings based on test performance
