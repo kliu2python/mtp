@@ -7,15 +7,25 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 import asyncio
 import contextlib
+import logging
 
-import asyncssh
+from starlette.websockets import WebSocketState
 
 from app.core.database import get_db
 from app.models.vm import VirtualMachine, VMStatus, VMPlatform, TestRecord
 from app.services.docker_service import docker_service
 from pydantic import BaseModel
+from app.services.ssh_session import (
+    SSHSession,
+    cleanup_ssh_sessions,
+    parse_websocket_payload,
+    register_ssh_session,
+    remove_ssh_session,
+    SPECIAL_SEND_KEYS,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class VMCreate(BaseModel):
@@ -255,6 +265,7 @@ async def get_vm_metrics(vm_id: str, db: Session = Depends(get_db)):
 async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(get_db)):
     """Proxy SSH session for the given VM over WebSocket."""
     await websocket.accept()
+    cleanup_ssh_sessions()
 
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
@@ -267,74 +278,101 @@ async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(ge
         await websocket.close(code=1008)
         return
 
-    ssh_kwargs = {
-        "host": vm.ip_address,
-        "username": vm.ssh_username,
-        "known_hosts": None,
+    device = {
+        "device_name": vm.name or vm.id,
+        "device_ip": vm.ip_address,
+        "device_login_name": vm.ssh_username,
     }
 
-    if vm.ssh_password:
-        ssh_kwargs["password"] = vm.ssh_password
-
     try:
-        connection = await asyncssh.connect(**ssh_kwargs)
-        process = await connection.create_process(term_type="xterm")
-    except Exception as exc:
-        await websocket.send_text(f"Error: Unable to establish SSH session ({exc}).")
+        session = SSHSession(device)
+        register_ssh_session(session)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Failed to start SSH session: %s", exc)
+        await websocket.send_text(f"Error: Unable to start SSH client ({exc}).")
         await websocket.close(code=1011)
         return
 
-    await websocket.send_text(f"Connected to {vm.ip_address} as {vm.ssh_username}\r\n")
+    intro_lines = [
+        f"Connecting to {vm.ip_address} as {vm.ssh_username}...",
+        f"Session log: {session.log_path}",
+        "Special keys: " + ", ".join(sorted(SPECIAL_SEND_KEYS.keys())) + ", Ctrl+<letter>",
+        "Press Ctrl+D to terminate the session.",
+        "",
+    ]
+    try:
+        await websocket.send_text("\r\n".join(intro_lines) + "\r\n")
+    except Exception:  # pragma: no cover - websocket send failure
+        pass
 
-    async def forward_ssh_output(stream):
+    stop_event = asyncio.Event()
+
+    async def forward_session_output() -> None:
         try:
-            while True:
-                data = await stream.read(1024)
-                if not data:
+            while not stop_event.is_set():
+                poll_result = session.poll()
+                output = poll_result.get("output", "")
+                if output and websocket.application_state == WebSocketState.CONNECTED:
+                    try:
+                        await websocket.send_text(output)
+                    except Exception:
+                        stop_event.set()
+                        break
+                if poll_result.get("closed"):
+                    stop_event.set()
                     break
-                await websocket.send_text(data)
-        except Exception:
-            pass
+                await asyncio.sleep(0.1)
+        except Exception as exc:  # pragma: no cover - unexpected
+            logger.exception("SSH output forwarding failed: %s", exc)
+            if websocket.application_state == WebSocketState.CONNECTED:
+                with contextlib.suppress(Exception):
+                    await websocket.send_text(f"\r\n[SSH output error: {exc}]\r\n")
+            stop_event.set()
 
-    async def forward_websocket_input():
+    async def forward_websocket_input() -> None:
         try:
-            while True:
-                data = await websocket.receive_text()
-                process.stdin.write(data)
-        except WebSocketDisconnect:
-            pass
-        except Exception:
-            pass
+            while not stop_event.is_set():
+                try:
+                    message = await websocket.receive_text()
+                except WebSocketDisconnect:
+                    stop_event.set()
+                    break
+                except Exception as exc:  # pragma: no cover - unexpected receive error
+                    logger.exception("SSH websocket receive failed: %s", exc)
+                    stop_event.set()
+                    break
+
+                payload = parse_websocket_payload(message)
+                if not payload:
+                    continue
+                if not session.send_input(payload):
+                    stop_event.set()
+                    break
         finally:
-            try:
-                process.stdin.write_eof()
-            except Exception:
-                pass
+            stop_event.set()
 
     tasks = [
-        asyncio.create_task(forward_ssh_output(process.stdout)),
-        asyncio.create_task(forward_ssh_output(process.stderr)),
+        asyncio.create_task(forward_session_output()),
         asyncio.create_task(forward_websocket_input()),
     ]
 
-    done: set = set()
-    pending: set = set()
     try:
-        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stop_event.set()
+        for task in tasks:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
-    finally:
-        for task in done:
+
+        leftover = session.close()
+        remove_ssh_session(session.session_id)
+        cleanup_ssh_sessions()
+
+        if leftover and websocket.application_state == WebSocketState.CONNECTED:
             with contextlib.suppress(Exception):
-                await task
-        process.close()
-        connection.close()
-        with contextlib.suppress(Exception):
-            await process.wait_closed()
-        with contextlib.suppress(Exception):
-            await connection.wait_closed()
+                await websocket.send_text(leftover)
+
         with contextlib.suppress(Exception):
             await websocket.close()
 
