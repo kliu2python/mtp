@@ -1,10 +1,14 @@
 """
 Virtual Machine API endpoints
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
+import asyncio
+import contextlib
+
+import asyncssh
 
 from app.core.database import get_db
 from app.models.vm import VirtualMachine, VMStatus, VMPlatform, TestRecord
@@ -241,11 +245,98 @@ async def get_vm_metrics(vm_id: str, db: Session = Depends(get_db)):
         vm.memory_usage = metrics.get("memory_percent", 0)
         vm.disk_usage = metrics.get("disk_percent", 0)
         db.commit()
-        
+
         return metrics
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get metrics: {str(e)}")
 
+
+@router.websocket("/{vm_id}/ssh")
+async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(get_db)):
+    """Proxy SSH session for the given VM over WebSocket."""
+    await websocket.accept()
+
+    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
+    if not vm:
+        await websocket.send_text("Error: VM not found.")
+        await websocket.close(code=1008)
+        return
+
+    if not vm.ip_address or not vm.ssh_username:
+        await websocket.send_text("Error: SSH connection details are incomplete for this VM.")
+        await websocket.close(code=1008)
+        return
+
+    ssh_kwargs = {
+        "host": vm.ip_address,
+        "username": vm.ssh_username,
+        "known_hosts": None,
+    }
+
+    if vm.ssh_password:
+        ssh_kwargs["password"] = vm.ssh_password
+
+    try:
+        connection = await asyncssh.connect(**ssh_kwargs)
+        process = await connection.create_process(term_type="xterm")
+    except Exception as exc:
+        await websocket.send_text(f"Error: Unable to establish SSH session ({exc}).")
+        await websocket.close(code=1011)
+        return
+
+    await websocket.send_text(f"Connected to {vm.ip_address} as {vm.ssh_username}\r\n")
+
+    async def forward_ssh_output(stream):
+        try:
+            while True:
+                data = await stream.read(1024)
+                if not data:
+                    break
+                await websocket.send_text(data)
+        except Exception:
+            pass
+
+    async def forward_websocket_input():
+        try:
+            while True:
+                data = await websocket.receive_text()
+                process.stdin.write(data)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            pass
+        finally:
+            try:
+                process.stdin.write_eof()
+            except Exception:
+                pass
+
+    tasks = [
+        asyncio.create_task(forward_ssh_output(process.stdout)),
+        asyncio.create_task(forward_ssh_output(process.stderr)),
+        asyncio.create_task(forward_websocket_input()),
+    ]
+
+    done: set = set()
+    pending: set = set()
+    try:
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+    finally:
+        for task in done:
+            with contextlib.suppress(Exception):
+                await task
+        process.close()
+        connection.close()
+        with contextlib.suppress(Exception):
+            await process.wait_closed()
+        with contextlib.suppress(Exception):
+            await connection.wait_closed()
+        with contextlib.suppress(Exception):
+            await websocket.close()
 
 @router.get("/{vm_id}/tests")
 async def get_vm_test_records(
