@@ -27,8 +27,8 @@ class VMPlatform(str, enum.Enum):
 
 class VMProvider(str, enum.Enum):
     """VM provider enum"""
-    DOCKER = "docker"
-    OPENSTACK = "openstack"
+    DOCKER = "DOCKER"
+    OPENSTACK = "OPENSTACK"
 
 
 class VirtualMachine(Base):

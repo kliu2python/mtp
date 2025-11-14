@@ -35,7 +35,7 @@ def _ensure_optional_columns():
 
     # Add OpenStack-related columns
     if "provider" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR DEFAULT 'docker'"))
+        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR DEFAULT 'DOCKER'"))
     if "openstack_credential_id" not in existing_columns:
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_credential_id UUID NULL"))
     if "openstack_server_id" not in existing_columns:
@@ -50,11 +50,21 @@ def _ensure_optional_columns():
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_floating_ip VARCHAR NULL"))
 
     if not statements:
-        return
+        # Still need to check for data migration even if no schema changes
+        pass
+    else:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(statement)
 
+    # Migrate existing lowercase provider values to uppercase
     with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(statement)
+        connection.execute(text(
+            "UPDATE virtual_machines SET provider = 'DOCKER' WHERE provider = 'docker'"
+        ))
+        connection.execute(text(
+            "UPDATE virtual_machines SET provider = 'OPENSTACK' WHERE provider = 'openstack'"
+        ))
 
 
 @asynccontextmanager
