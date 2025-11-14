@@ -27,21 +27,30 @@ class DeviceCreate(BaseModel):
 async def list_devices(
     platform: Optional[str] = None,
     status: Optional[str] = None,
+    os_version: Optional[str] = None,
+    device_type: Optional[str] = None,
     available_only: bool = False,
+    location: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """List all devices with optional filters"""
     query = db.query(TestDevice)
-    
+
     if platform:
-        query = query.filter(TestDevice.platform == platform)
+        query = query.filter(TestDevice.platform.ilike(f"%{platform}%"))
     if status:
         query = query.filter(TestDevice.status == status)
+    if os_version:
+        query = query.filter(TestDevice.os_version.ilike(f"%{os_version}%"))
+    if device_type:
+        query = query.filter(TestDevice.device_type == device_type)
+    if location:
+        query = query.filter(TestDevice.location.ilike(f"%{location}%"))
     if available_only:
         query = query.filter(TestDevice.status == DeviceStatus.AVAILABLE)
-    
+
     devices = query.all()
-    
+
     return {
         "total": len(devices),
         "devices": [device.to_dict() for device in devices]
