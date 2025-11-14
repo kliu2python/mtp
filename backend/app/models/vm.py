@@ -25,6 +25,12 @@ class VMPlatform(str, enum.Enum):
     FORTIAUTHENTICATOR = "FortiAuthenticator"
 
 
+class VMProvider(str, enum.Enum):
+    """VM provider enum"""
+    DOCKER = "DOCKER"
+    OPENSTACK = "OPENSTACK"
+
+
 class VirtualMachine(Base):
     """Virtual Machine model"""
     __tablename__ = "virtual_machines"

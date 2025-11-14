@@ -28,11 +28,21 @@ def _ensure_optional_columns():
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
 
     if not statements:
-        return
+        # Still need to check for data migration even if no schema changes
+        pass
+    else:
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(statement)
 
+    # Migrate existing lowercase provider values to uppercase
     with engine.begin() as connection:
-        for statement in statements:
-            connection.execute(statement)
+        connection.execute(text(
+            "UPDATE virtual_machines SET provider = 'DOCKER' WHERE provider = 'docker'"
+        ))
+        connection.execute(text(
+            "UPDATE virtual_machines SET provider = 'OPENSTACK' WHERE provider = 'openstack'"
+        ))
 
 
 @asynccontextmanager
