@@ -41,7 +41,7 @@ class ApkFile(Base):
     # Additional metadata
     description = Column(String, nullable=True)
     tags = Column(JSON, default=list)  # ["fac", "production", "v1.2.3"]
-    metadata = Column(JSON, default=dict)  # Extra parsed metadata
+    app_metadata = Column(JSON, default=dict)  # Extra parsed metadata
 
     # Status
     is_active = Column(Boolean, default=True)
@@ -69,7 +69,7 @@ class ApkFile(Base):
             "bundle_id": self.bundle_id,
             "description": self.description,
             "tags": self.tags,
-            "metadata": self.metadata,
+            "app_metadata": self.app_metadata,
             "is_active": self.is_active,
             "uploaded_by": self.uploaded_by,
             "created_at": self.created_at.isoformat() if self.created_at else None,
