@@ -33,6 +33,7 @@ class TestTask:
     def to_dict(self):
         return {
             "task_id": self.task_id,
+            "config": self.config,
             "status": self.status,
             "progress": self.progress,
             "result": self.result,

@@ -61,6 +61,9 @@ async def get_dashboard_overview(db: Session = Depends(get_db)):
             if t.get('node_id') == str(node.id)
         ]
 
+        # Calculate pass rate
+        pass_rate = round(node.total_tests_passed / node.total_tests_executed * 100, 2) if node.total_tests_executed > 0 else 0
+
         node_details.append({
             "id": str(node.id),
             "name": node.name,
@@ -75,7 +78,7 @@ async def get_dashboard_overview(db: Session = Depends(get_db)):
             "test_details": node_tests,
             "metrics": {
                 "total_tests": node.total_tests_executed,
-                "pass_rate": node.pass_rate,
+                "pass_rate": pass_rate,
                 "avg_duration": node.average_test_duration,
                 "cpu_usage": node.cpu_usage,
                 "memory_usage": node.memory_usage,
