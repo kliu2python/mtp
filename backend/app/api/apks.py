@@ -149,7 +149,7 @@ async def upload_apk_file(
         bundle_id=metadata.get("bundle_id"),
         description=description,
         tags=tags.split(",") if tags else [],
-        metadata=metadata,
+        app_metadata=metadata,
         uploaded_by=uploaded_by,
         is_active=True
     )
