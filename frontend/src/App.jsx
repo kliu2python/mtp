@@ -25,7 +25,8 @@ import {
   Upload,
   Image,
   Tooltip,
-  Progress
+  Progress,
+  Empty
 } from 'antd';
 import {
   DashboardOutlined,
