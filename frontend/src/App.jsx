@@ -741,6 +741,12 @@ const VMs = () => {
   const [runningTests, setRunningTests] = useState({});
   const [testPollingInterval, setTestPollingInterval] = useState(null);
 
+  // Run Previous states
+  const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
+  const [runPreviousForm] = Form.useForm();
+  const [previousTestConfig, setPreviousTestConfig] = useState(null);
+  const [loadingPreviousConfig, setLoadingPreviousConfig] = useState(false);
+
   useEffect(() => {
     fetchVMs();
   }, []);
@@ -895,6 +901,68 @@ const VMs = () => {
       }
     };
   }, [testPollingInterval]);
+
+  const openRunPreviousModal = async (vm) => {
+    setSelectedTestVm(vm);
+    setLoadingPreviousConfig(true);
+    setRunPreviousModalOpen(true);
+
+    try {
+      const response = await axios.get(`${API_URL}/api/tests/previous/${vm.id}`);
+      setPreviousTestConfig(response.data);
+
+      // Pre-fill the form with the current docker tag
+      const currentTag = response.data.config?.environment?.docker_tag || 'latest';
+      runPreviousForm.setFieldsValue({
+        docker_tag: currentTag
+      });
+    } catch (error) {
+      message.error(error?.response?.data?.detail || 'No previous tests found for this VM');
+      setRunPreviousModalOpen(false);
+    } finally {
+      setLoadingPreviousConfig(false);
+    }
+  };
+
+  const runPreviousTest = async () => {
+    try {
+      const values = await runPreviousForm.validateFields();
+      setStartingTest(true);
+
+      const response = await axios.post(
+        `${API_URL}/api/tests/rerun/${previousTestConfig.task_id}`,
+        { docker_tag: values.docker_tag }
+      );
+
+      if (response.data.task_id) {
+        message.success(`Test re-queued successfully! New Task ID: ${response.data.task_id}`);
+
+        // Store the running test
+        setRunningTests(prev => ({
+          ...prev,
+          [response.data.task_id]: {
+            vmId: selectedTestVm.id,
+            vmName: selectedTestVm.name,
+            status: 'queued',
+            progress: 0,
+            startTime: new Date().toISOString()
+          }
+        }));
+
+        // Start polling for status
+        startTestStatusPolling(response.data.task_id);
+
+        setRunPreviousModalOpen(false);
+        runPreviousForm.resetFields();
+        setPreviousTestConfig(null);
+      }
+    } catch (error) {
+      console.error('Failed to re-run test:', error);
+      message.error(error?.response?.data?.detail || 'Failed to re-run test');
+    } finally {
+      setStartingTest(false);
+    }
+  };
 
   const deleteVM = async (vmId) => {
     try {
@@ -1265,7 +1333,17 @@ const VMs = () => {
               onClick={() => openTestModal(record)}
               style={{ background: '#52c41a', borderColor: '#52c41a' }}
             >
-              Run Auto Test
+              Start
+            </Button>
+          </Tooltip>
+          <Tooltip title="Re-run previous test with modified Docker tag">
+            <Button
+              size="small"
+              type="default"
+              icon={<ReloadOutlined />}
+              onClick={() => openRunPreviousModal(record)}
+            >
+              Run Previous
             </Button>
           </Tooltip>
           <Button
@@ -1441,6 +1519,67 @@ const VMs = () => {
             <InputNumber min={1} max={5} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Run Previous Test Modal */}
+      <Modal
+        title={`Run Previous Test${selectedTestVm ? ` - ${selectedTestVm.name}` : ''}`}
+        open={runPreviousModalOpen}
+        onOk={runPreviousTest}
+        onCancel={() => {
+          setRunPreviousModalOpen(false);
+          runPreviousForm.resetFields();
+          setPreviousTestConfig(null);
+        }}
+        okText="Run Test"
+        confirmLoading={startingTest}
+        width={600}
+      >
+        {loadingPreviousConfig ? (
+          <Spin />
+        ) : previousTestConfig ? (
+          <>
+            <Alert
+              type="info"
+              message="Quick Re-run with Modified Docker Tag"
+              description="Modify only the Docker tag to quickly re-run the previous test configuration."
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+
+            <Card size="small" title="Previous Test Configuration" style={{ marginBottom: 16 }}>
+              <Typography.Text strong>Platform:</Typography.Text> {previousTestConfig.config?.environment?.platform || 'N/A'}<br />
+              <Typography.Text strong>Test Suite:</Typography.Text> {previousTestConfig.config?.environment?.test_suite || 'N/A'}<br />
+              <Typography.Text strong>Test Markers:</Typography.Text> {previousTestConfig.config?.environment?.test_markers || 'N/A'}<br />
+              <Typography.Text strong>Execution Method:</Typography.Text> {previousTestConfig.config?.environment?.execution_method || 'N/A'}<br />
+              <Typography.Text strong>Docker Image:</Typography.Text> {previousTestConfig.config?.environment?.docker_registry || 'docker.io'}/{previousTestConfig.config?.environment?.docker_image || 'N/A'}<br />
+              <Typography.Text strong>Previous Status:</Typography.Text> <Tag color={
+                previousTestConfig.status === 'completed' ? 'success' :
+                previousTestConfig.status === 'failed' ? 'error' : 'default'
+              }>{previousTestConfig.status?.toUpperCase()}</Tag>
+            </Card>
+
+            <Form form={runPreviousForm} layout="vertical">
+              <Form.Item
+                name="docker_tag"
+                label="Docker Tag"
+                rules={[{ required: true, message: 'Please enter docker tag' }]}
+                tooltip="Modify the Docker tag to use a different version"
+              >
+                <Input placeholder="latest, v1.0.0, dev, etc." />
+              </Form.Item>
+            </Form>
+
+            <Alert
+              type="success"
+              message="All other settings will remain the same"
+              description="Only the Docker tag will be changed. VM IP, credentials, test suite, and all other parameters will be reused."
+              showIcon
+            />
+          </>
+        ) : (
+          <Empty description="No previous test configuration available" />
+        )}
       </Modal>
 
       {/* Auto Test Configuration Modal */}

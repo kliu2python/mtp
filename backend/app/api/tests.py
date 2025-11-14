@@ -73,6 +73,64 @@ async def get_test_status(task_id: str):
     return status
 
 
+@router.get("/previous/{vm_id}")
+async def get_previous_test_config(vm_id: str):
+    """Get the last test configuration for a VM"""
+    # Find the most recent completed or failed test for this VM
+    all_tasks = test_executor.get_all_tasks()
+    vm_tests = [
+        t for t in all_tasks
+        if t.get('config', {}).get('vm_id') == vm_id
+    ]
+
+    if not vm_tests:
+        raise HTTPException(status_code=404, detail="No previous tests found for this VM")
+
+    # Sort by start_time, most recent first
+    vm_tests.sort(key=lambda x: x.get('start_time', ''), reverse=True)
+    latest_test = vm_tests[0]
+
+    return {
+        "task_id": latest_test.get('task_id'),
+        "config": latest_test.get('config', {}),
+        "status": latest_test.get('status'),
+        "start_time": latest_test.get('start_time')
+    }
+
+
+class RerunTestConfig(BaseModel):
+    docker_tag: str
+
+
+@router.post("/rerun/{task_id}")
+async def rerun_test_with_tag(
+    task_id: str,
+    rerun_config: RerunTestConfig,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Re-run a previous test with modified docker tag"""
+    # Get the original test configuration
+    status = await test_executor.get_status(task_id)
+
+    if not status or 'config' not in status:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    # Clone the config and update docker tag
+    config_dict = status['config'].copy()
+    config_dict['environment']['docker_tag'] = rerun_config.docker_tag
+
+    # Queue new test execution
+    new_task_id = await test_executor.queue_test(config_dict, db)
+
+    return {
+        "task_id": new_task_id,
+        "status": "queued",
+        "message": f"Test re-queued with docker tag: {rerun_config.docker_tag}",
+        "original_task_id": task_id
+    }
+
+
 @router.get("/coverage")
 async def get_coverage_report(db: Session = Depends(get_db)):
     """Get test coverage report"""
