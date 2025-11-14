@@ -51,6 +51,7 @@ import {
   EyeOutlined,
   MonitorOutlined,
   CloudUploadOutlined
+  AppstoreOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import './App.css';
@@ -59,6 +60,7 @@ import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import WorkerDashboard from './components/WorkerDashboard';
 import OpenStackDeploy from './components/OpenStackDeploy';
+import ApkBrowser from './components/ApkBrowser';
 
 const { Content, Sider } = Layout;
 
@@ -2414,6 +2416,7 @@ function App() {
     { key: '/openstack', icon: <CloudUploadOutlined />, label: 'OpenStack Deploy', path: '/openstack' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/jenkins', icon: <ClusterOutlined />, label: 'Jenkins Nodes', path: '/jenkins' },
+    { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
     { key: '/tests', icon: <ExperimentOutlined />, label: 'Tests', path: '/tests' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
   ];
@@ -2442,6 +2445,7 @@ function App() {
               <Route path="/openstack" element={<OpenStackDeploy />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/jenkins" element={<JenkinsNodes />} />
+              <Route path="/apks" element={<ApkBrowser />} />
               <Route path="/tests" element={<Tests />} />
               <Route path="/files" element={<Files />} />
             </Routes>
