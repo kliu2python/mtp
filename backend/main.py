@@ -11,15 +11,9 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard, apks, stf, schedules, ai_analysis, openstack
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard, apks, stf, schedules, ai_analysis
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
-
-# Import models to ensure they are registered with SQLAlchemy
-from app.models.vm import VirtualMachine, TestRecord
-from app.models.device import TestDevice
-from app.models.jenkins_node import JenkinsNode
-from app.models.openstack import OpenStackCredential, OpenStackImage
 
 
 def _ensure_optional_columns():
@@ -32,22 +26,6 @@ def _ensure_optional_columns():
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
     if "ssh_password" not in existing_columns:
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
-
-    # Add OpenStack-related columns
-    if "provider" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR DEFAULT 'DOCKER'"))
-    if "openstack_credential_id" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_credential_id UUID NULL"))
-    if "openstack_server_id" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_server_id VARCHAR NULL"))
-    if "openstack_flavor" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_flavor VARCHAR NULL"))
-    if "openstack_image_id" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_image_id VARCHAR NULL"))
-    if "openstack_network_id" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_network_id VARCHAR NULL"))
-    if "openstack_floating_ip" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN openstack_floating_ip VARCHAR NULL"))
 
     if not statements:
         # Still need to check for data migration even if no schema changes
@@ -135,7 +113,6 @@ app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
 app.include_router(dashboard.router, tags=["Dashboard"])
-app.include_router(openstack.router, prefix="/api/openstack", tags=["OpenStack"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
