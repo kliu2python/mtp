@@ -11,7 +11,7 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard, apks, stf, schedules, ai_analysis
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -40,24 +40,38 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     print("🚀 Starting Test Platform...")
-    
+
     # Create database tables
     Base.metadata.create_all(bind=engine)
     _ensure_optional_columns()
     print("✅ Database initialized")
-    
+
     # Start background services
     from app.services.device_monitor import device_monitor
     from app.services.vm_monitor import vm_monitor
-    
+    from app.services.scheduler_service import scheduler_service
+
     # asyncio.create_task(device_monitor.start())
     # asyncio.create_task(vm_monitor.start())
+
+    # Start scheduler service
+    try:
+        await scheduler_service.start()
+    except Exception as e:
+        print(f"⚠️  Scheduler service failed to start: {e}")
+
     print("✅ Background services started")
-    
+
     yield
-    
+
     # Shutdown
     print("🛑 Shutting down Test Platform...")
+
+    # Stop scheduler service
+    try:
+        await scheduler_service.stop()
+    except Exception as e:
+        print(f"⚠️  Error stopping scheduler: {e}")
 
 
 app = FastAPI(
@@ -81,6 +95,10 @@ app.include_router(vms.router, prefix="/api/vms", tags=["VMs"])
 app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
 app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
+app.include_router(apks.router, prefix="/api/apks", tags=["APKs"])
+app.include_router(stf.router, prefix="/api/stf", tags=["STF"])
+app.include_router(schedules.router, prefix="/api/schedules", tags=["Schedules"])
+app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
