@@ -84,7 +84,7 @@ async def get_dashboard_overview(db: Session = Depends(get_db)):
                 "memory_usage": node.memory_usage,
                 "disk_usage": node.disk_usage
             },
-            "last_seen": node.last_seen.isoformat() if node.last_seen else None
+            "last_seen": node.last_ping_time.isoformat() if node.last_ping_time else None
         })
 
     # Get system metrics
@@ -276,7 +276,7 @@ async def get_alerts(db: Session = Depends(get_db)):
                 "type": "node_offline",
                 "message": f"Node '{node.name}' is offline",
                 "node_id": str(node.id),
-                "timestamp": node.last_seen.isoformat() if node.last_seen else None
+                "timestamp": node.last_ping_time.isoformat() if node.last_ping_time else None
             })
 
         # Error nodes
