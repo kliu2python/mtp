@@ -24,7 +24,8 @@ import {
   Alert,
   Upload,
   Image,
-  Tooltip
+  Tooltip,
+  Progress
 } from 'antd';
 import {
   DashboardOutlined,
@@ -732,6 +733,14 @@ const VMs = () => {
   const sshFitAddonRef = useRef(null);
   const sshSocketRef = useRef(null);
 
+  // Auto Test states
+  const [testModalOpen, setTestModalOpen] = useState(false);
+  const [testForm] = Form.useForm();
+  const [selectedTestVm, setSelectedTestVm] = useState(null);
+  const [startingTest, setStartingTest] = useState(false);
+  const [runningTests, setRunningTests] = useState({});
+  const [testPollingInterval, setTestPollingInterval] = useState(null);
+
   useEffect(() => {
     fetchVMs();
   }, []);
@@ -767,6 +776,125 @@ const VMs = () => {
       message.error('Failed to stop VM');
     }
   };
+
+  const openTestModal = (vm) => {
+    setSelectedTestVm(vm);
+    testForm.resetFields();
+    // Set default values based on VM
+    testForm.setFieldsValue({
+      platform: vm.platform === 'FortiGate' ? 'ios' : 'android',
+      execution_method: 'docker',
+      test_suite: 'FortiToken_Mobile',
+      test_markers: 'smoke',
+      timeout: 3600,
+      docker_registry: 'docker.io',
+      docker_image: 'pytest-automation',
+      docker_tag: 'latest'
+    });
+    setTestModalOpen(true);
+  };
+
+  const runAutoTest = async () => {
+    try {
+      const values = await testForm.validateFields();
+      setStartingTest(true);
+
+      const testConfig = {
+        name: `Auto Test - ${selectedTestVm.name}`,
+        vm_id: selectedTestVm.id,
+        device_ids: [],
+        test_scripts: [],
+        environment: {
+          vm_ip: selectedTestVm.ip_address,
+          vm_username: selectedTestVm.ssh_username,
+          vm_password: selectedTestVm.ssh_password,
+          platform: values.platform,
+          execution_method: values.execution_method,
+          test_suite: values.test_suite,
+          test_markers: values.test_markers,
+          docker_registry: values.docker_registry,
+          docker_image: values.docker_image,
+          docker_tag: values.docker_tag,
+        },
+        timeout: values.timeout
+      };
+
+      const response = await axios.post(`${API_URL}/api/tests/execute`, testConfig);
+
+      if (response.data.task_id) {
+        message.success(`Test queued successfully! Task ID: ${response.data.task_id}`);
+
+        // Store the running test
+        setRunningTests(prev => ({
+          ...prev,
+          [response.data.task_id]: {
+            vmId: selectedTestVm.id,
+            vmName: selectedTestVm.name,
+            status: 'queued',
+            progress: 0,
+            startTime: new Date().toISOString()
+          }
+        }));
+
+        // Start polling for status
+        startTestStatusPolling(response.data.task_id);
+
+        setTestModalOpen(false);
+        testForm.resetFields();
+      }
+    } catch (error) {
+      console.error('Failed to start test:', error);
+      message.error(error?.response?.data?.detail || 'Failed to start auto test');
+    } finally {
+      setStartingTest(false);
+    }
+  };
+
+  const startTestStatusPolling = (taskId) => {
+    const interval = setInterval(async () => {
+      try {
+        const response = await axios.get(`${API_URL}/api/tests/status/${taskId}`);
+        const status = response.data;
+
+        setRunningTests(prev => ({
+          ...prev,
+          [taskId]: {
+            ...prev[taskId],
+            status: status.status,
+            progress: status.progress || 0,
+            result: status.result,
+            error: status.error
+          }
+        }));
+
+        // Stop polling if test is completed or failed
+        if (status.status === 'completed' || status.status === 'failed') {
+          clearInterval(interval);
+          if (status.status === 'completed') {
+            message.success(`Test ${taskId} completed successfully!`);
+          } else {
+            message.error(`Test ${taskId} failed: ${status.error || 'Unknown error'}`);
+          }
+
+          // Refresh VMs to update test metrics
+          setTimeout(() => fetchVMs(), 1000);
+        }
+      } catch (error) {
+        console.error('Failed to fetch test status:', error);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    setTestPollingInterval(interval);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (testPollingInterval) {
+        clearInterval(testPollingInterval);
+      }
+    };
+  }, [testPollingInterval]);
 
   const deleteVM = async (vmId) => {
     try {
@@ -1129,6 +1257,17 @@ const VMs = () => {
               Stop
             </Button>
           )}
+          <Tooltip title="Run automated tests in Jenkins-style Docker execution">
+            <Button
+              size="small"
+              type="primary"
+              icon={<ExperimentOutlined />}
+              onClick={() => openTestModal(record)}
+              style={{ background: '#52c41a', borderColor: '#52c41a' }}
+            >
+              Run Auto Test
+            </Button>
+          </Tooltip>
           <Button
             size="small"
             icon={<CodeOutlined />}
@@ -1191,6 +1330,42 @@ const VMs = () => {
           </Button>
         </Space>
       </div>
+
+      {/* Running Tests Display */}
+      {Object.keys(runningTests).length > 0 && (
+        <Alert
+          type="info"
+          message={`Running Tests (${Object.keys(runningTests).length})`}
+          description={
+            <div>
+              {Object.entries(runningTests).map(([taskId, test]) => (
+                <div key={taskId} style={{ marginBottom: 8 }}>
+                  <Typography.Text strong>{test.vmName}</Typography.Text>
+                  <br />
+                  <Typography.Text type="secondary">Task ID: {taskId}</Typography.Text>
+                  <br />
+                  <Typography.Text>Status: <Tag color={
+                    test.status === 'running' ? 'processing' :
+                    test.status === 'completed' ? 'success' :
+                    test.status === 'failed' ? 'error' : 'default'
+                  }>{test.status.toUpperCase()}</Tag></Typography.Text>
+                  {test.progress > 0 && (
+                    <div style={{ marginTop: 4 }}>
+                      Progress: {test.progress}%
+                    </div>
+                  )}
+                  {test.error && (
+                    <Alert type="error" message={test.error} style={{ marginTop: 4 }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          }
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
       <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 10 }} />
 
       <Modal
@@ -1266,6 +1441,139 @@ const VMs = () => {
             <InputNumber min={1} max={5} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Auto Test Configuration Modal */}
+      <Modal
+        title={`Configure Auto Test${selectedTestVm ? ` - ${selectedTestVm.name}` : ''}`}
+        open={testModalOpen}
+        onOk={runAutoTest}
+        onCancel={() => {
+          setTestModalOpen(false);
+          testForm.resetFields();
+        }}
+        okText="Start Test"
+        confirmLoading={startingTest}
+        width={700}
+      >
+        <Alert
+          type="info"
+          message="Jenkins-Style Docker Execution"
+          description="This will execute tests on a Jenkins worker node using Docker containers, fetching configuration from lab config files."
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form form={testForm} layout="vertical">
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="platform"
+                label="Platform"
+                rules={[{ required: true, message: 'Please select a platform' }]}
+              >
+                <Select
+                  options={[
+                    { label: 'iOS', value: 'ios' },
+                    { label: 'Android', value: 'android' }
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="execution_method"
+                label="Execution Method"
+                rules={[{ required: true }]}
+              >
+                <Select
+                  options={[
+                    { label: 'Docker (Recommended)', value: 'docker' },
+                    { label: 'SSH Direct', value: 'ssh' }
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="test_suite"
+                label="Test Suite"
+                rules={[{ required: true, message: 'Please enter test suite name' }]}
+              >
+                <Input placeholder="FortiToken_Mobile" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="test_markers"
+                label="Test Markers"
+                tooltip="Pytest markers to filter tests (e.g., smoke, regression, sanity)"
+                rules={[{ required: true, message: 'Please enter test markers' }]}
+              >
+                <Input placeholder="smoke" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Typography.Title level={5} style={{ marginTop: 16 }}>Docker Configuration</Typography.Title>
+
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="docker_registry"
+                label="Docker Registry"
+                rules={[{ required: true }]}
+              >
+                <Input placeholder="docker.io" />
+              </Form.Item>
+            </Col>
+            <Col span={10}>
+              <Form.Item
+                name="docker_image"
+                label="Docker Image"
+                rules={[{ required: true }]}
+              >
+                <Input placeholder="pytest-automation" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item
+                name="docker_tag"
+                label="Tag"
+                rules={[{ required: true }]}
+              >
+                <Input placeholder="latest" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item
+            name="timeout"
+            label="Timeout (seconds)"
+            rules={[{ required: true }]}
+          >
+            <InputNumber min={300} max={7200} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+
+        <Alert
+          type="warning"
+          message="VM Configuration"
+          description={
+            selectedTestVm ? (
+              <div>
+                <Typography.Text strong>VM IP:</Typography.Text> {selectedTestVm.ip_address}<br />
+                <Typography.Text strong>Username:</Typography.Text> {selectedTestVm.ssh_username}<br />
+                <Typography.Text strong>Platform:</Typography.Text> {selectedTestVm.platform}<br />
+                <Typography.Text strong>Version:</Typography.Text> {selectedTestVm.version}
+              </div>
+            ) : 'No VM selected'
+          }
+          showIcon
+          style={{ marginTop: 16 }}
+        />
       </Modal>
 
       <Modal
