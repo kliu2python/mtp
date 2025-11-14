@@ -11,9 +11,13 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, dashboard, apks, stf, schedules, ai_analysis
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, jenkins_jobs, dashboard, apks, stf, schedules, ai_analysis
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
+
+# Import models to ensure they are registered with SQLAlchemy
+from app.models.jenkins_job import JenkinsJob
+from app.models.jenkins_build import JenkinsBuild
 
 
 def _ensure_optional_columns():
@@ -60,6 +64,7 @@ async def lifespan(app: FastAPI):
     from app.services.device_monitor import device_monitor
     from app.services.vm_monitor import vm_monitor
     from app.services.scheduler_service import scheduler_service
+    from app.services.jenkins_controller import jenkins_controller
 
     # asyncio.create_task(device_monitor.start())
     # asyncio.create_task(vm_monitor.start())
@@ -69,6 +74,13 @@ async def lifespan(app: FastAPI):
         await scheduler_service.start()
     except Exception as e:
         print(f"⚠️  Scheduler service failed to start: {e}")
+
+    # Start Jenkins controller
+    try:
+        await jenkins_controller.start()
+        print("✅ Jenkins Controller started")
+    except Exception as e:
+        print(f"⚠️  Jenkins controller failed to start: {e}")
 
     print("✅ Background services started")
 
@@ -82,6 +94,13 @@ async def lifespan(app: FastAPI):
         await scheduler_service.stop()
     except Exception as e:
         print(f"⚠️  Error stopping scheduler: {e}")
+
+    # Stop Jenkins controller
+    try:
+        await jenkins_controller.stop()
+        print("✅ Jenkins Controller stopped")
+    except Exception as e:
+        print(f"⚠️  Error stopping Jenkins controller: {e}")
 
 
 app = FastAPI(
@@ -111,7 +130,8 @@ app.include_router(schedules.router, prefix="/api/schedules", tags=["Schedules"]
 app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
-app.include_router(jenkins_nodes.router, prefix="/api/jenkins", tags=["Jenkins Nodes"])
+app.include_router(jenkins_nodes.router, prefix="/api/jenkins/nodes", tags=["Jenkins Nodes"])
+app.include_router(jenkins_jobs.router, tags=["Jenkins Jobs"])
 app.include_router(dashboard.router, tags=["Dashboard"])
 
 # Mount uploaded files for direct download links
