@@ -52,7 +52,7 @@ class ConnectionTestRequest(BaseModel):
     ssh_key: Optional[str] = None
 
 
-@router.get("/nodes")
+@router.get("")
 def list_nodes(
     skip: int = 0,
     limit: int = 100,
@@ -88,7 +88,7 @@ def list_nodes(
     }
 
 
-@router.post("/nodes")
+@router.post("")
 def create_node(node_data: NodeCreate, db: Session = Depends(get_db)):
     """Create a new Jenkins slave node"""
     # Check if name already exists
@@ -147,7 +147,7 @@ def create_node(node_data: NodeCreate, db: Session = Depends(get_db)):
     return node.to_dict()
 
 
-@router.get("/nodes/{node_id}")
+@router.get("/{node_id}")
 def get_node(node_id: str, db: Session = Depends(get_db)):
     """Get a specific Jenkins slave node"""
     try:
@@ -162,7 +162,7 @@ def get_node(node_id: str, db: Session = Depends(get_db)):
     return node.to_dict()
 
 
-@router.put("/nodes/{node_id}")
+@router.put("/{node_id}")
 def update_node(node_id: str, node_data: NodeUpdate, db: Session = Depends(get_db)):
     """Update a Jenkins slave node"""
     try:
@@ -211,7 +211,7 @@ def update_node(node_id: str, node_data: NodeUpdate, db: Session = Depends(get_d
     return node.to_dict()
 
 
-@router.delete("/nodes/{node_id}")
+@router.delete("/{node_id}")
 def delete_node(node_id: str, db: Session = Depends(get_db)):
     """Delete a Jenkins slave node"""
     try:
@@ -238,7 +238,7 @@ def delete_node(node_id: str, db: Session = Depends(get_db)):
     return {"message": f"Node '{node_name}' deleted successfully"}
 
 
-@router.post("/nodes/test-connection")
+@router.post("/test-connection")
 def test_connection(request: ConnectionTestRequest):
     """Test SSH connection to a node without creating it"""
     result = connection_pool.test_ssh_connection(
@@ -267,7 +267,7 @@ def test_connection(request: ConnectionTestRequest):
     }
 
 
-@router.post("/nodes/{node_id}/ping")
+@router.post("/{node_id}/ping")
 def ping_node(node_id: str, db: Session = Depends(get_db)):
     """Ping a node to check its status"""
     try:
@@ -319,7 +319,7 @@ def ping_node(node_id: str, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/nodes/{node_id}/enable")
+@router.post("/{node_id}/enable")
 def enable_node(node_id: str, db: Session = Depends(get_db)):
     """Enable a node"""
     try:
@@ -339,7 +339,7 @@ def enable_node(node_id: str, db: Session = Depends(get_db)):
     return node.to_dict()
 
 
-@router.post("/nodes/{node_id}/disable")
+@router.post("/{node_id}/disable")
 def disable_node(node_id: str, db: Session = Depends(get_db)):
     """Disable a node"""
     try:
@@ -360,14 +360,14 @@ def disable_node(node_id: str, db: Session = Depends(get_db)):
     return node.to_dict()
 
 
-@router.get("/nodes/pool/stats")
+@router.get("/pool/stats")
 def get_pool_stats(db: Session = Depends(get_db)):
     """Get connection pool statistics"""
     stats = connection_pool.get_pool_stats(db)
     return stats
 
 
-@router.post("/nodes/pool/health-check")
+@router.post("/pool/health-check")
 async def health_check_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """Perform health check on all nodes"""
     # Run health check in background
