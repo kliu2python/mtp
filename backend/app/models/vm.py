@@ -25,6 +25,12 @@ class VMPlatform(str, enum.Enum):
     FORTIAUTHENTICATOR = "FortiAuthenticator"
 
 
+class VMProvider(str, enum.Enum):
+    """VM provider enum"""
+    DOCKER = "docker"
+    OPENSTACK = "openstack"
+
+
 class VirtualMachine(Base):
     """Virtual Machine model"""
     __tablename__ = "virtual_machines"
@@ -38,7 +44,16 @@ class VirtualMachine(Base):
     ssh_password = Column(String, nullable=True)
     status = Column(SQLEnum(VMStatus), default=VMStatus.STOPPED)
     docker_container_id = Column(String, nullable=True)
-    
+
+    # Cloud provider fields
+    provider = Column(SQLEnum(VMProvider), default=VMProvider.DOCKER)
+    openstack_credential_id = Column(UUID(as_uuid=True), nullable=True)
+    openstack_server_id = Column(String, nullable=True)
+    openstack_flavor = Column(String, nullable=True)
+    openstack_image_id = Column(String, nullable=True)
+    openstack_network_id = Column(String, nullable=True)
+    openstack_floating_ip = Column(String, nullable=True)
+
     # Test metrics
     test_priority = Column(Integer, default=3)  # 1-5
     total_tests = Column(Integer, default=0)
@@ -69,6 +84,13 @@ class VirtualMachine(Base):
             "ssh_password": self.ssh_password,
             "status": self.status.value if self.status else None,
             "docker_container_id": self.docker_container_id,
+            "provider": self.provider.value if self.provider else VMProvider.DOCKER.value,
+            "openstack_credential_id": str(self.openstack_credential_id) if self.openstack_credential_id else None,
+            "openstack_server_id": self.openstack_server_id,
+            "openstack_flavor": self.openstack_flavor,
+            "openstack_image_id": self.openstack_image_id,
+            "openstack_network_id": self.openstack_network_id,
+            "openstack_floating_ip": self.openstack_floating_ip,
             "test_priority": self.test_priority,
             "total_tests": self.total_tests,
             "passed_tests": self.passed_tests,
