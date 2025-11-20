@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     # Appium
     APPIUM_ANDROID_URL: str = os.getenv("APPIUM_ANDROID_URL", "http://appium-android:4723")
     APPIUM_IOS_URL: str = os.getenv("APPIUM_IOS_URL", "http://appium-ios:4724")
+
+    # Device Nodes API (for proxy)
+    DEVICE_NODES_API_URL: str = os.getenv("DEVICE_NODES_API_URL", "http://10.160.13.118:8090")
     
     # AI Services
     CLAUDE_API_KEY: str = os.getenv("CLAUDE_API_KEY", "")

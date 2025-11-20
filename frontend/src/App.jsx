@@ -63,7 +63,8 @@ import ApkBrowser from './components/ApkBrowser';
 const { Content, Sider } = Layout;
 
 const API_URL = import.meta.env.VITE_API_URL || '';
-const DEVICE_NODES_API_BASE_URL = 'http://10.160.13.118:8090';
+// Use backend proxy to avoid mixed content errors
+const DEVICE_NODES_API_BASE_URL = `${API_URL}/api/device/nodes/proxy`;
 
 // Dashboard Component
 const Dashboard = () => {
