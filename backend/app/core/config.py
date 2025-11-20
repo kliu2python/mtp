@@ -54,7 +54,12 @@ class Settings(BaseSettings):
     # AI Services
     CLAUDE_API_KEY: str = os.getenv("CLAUDE_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    
+
+    # Jenkins Integration
+    JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080")
+    JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "")
+    JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "")
+
     # Monitoring
     PROMETHEUS_PORT: int = 9090
     

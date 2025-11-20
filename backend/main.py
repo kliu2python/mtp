@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     from app.services.device_monitor import device_monitor
     from app.services.vm_monitor import vm_monitor
     from app.services.scheduler_service import scheduler_service
-    from app.services.jenkins_controller import jenkins_controller
+    from app.services.jenkins_service import jenkins_service
 
     # asyncio.create_task(device_monitor.start())
     # asyncio.create_task(vm_monitor.start())
@@ -77,12 +77,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Scheduler service failed to start: {e}")
 
-    # Start Jenkins controller
+    # Verify Jenkins connection
     try:
-        await jenkins_controller.start()
-        print("✅ Jenkins Controller started")
+        is_connected = await jenkins_service.verify_connection()
+        if is_connected:
+            print(f"✅ Connected to Jenkins at {settings.JENKINS_URL}")
+        else:
+            print(f"⚠️  Could not connect to Jenkins at {settings.JENKINS_URL}")
     except Exception as e:
-        print(f"⚠️  Jenkins controller failed to start: {e}")
+        print(f"⚠️  Jenkins connection check failed: {e}")
 
     print("✅ Background services started")
 
@@ -97,12 +100,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Error stopping scheduler: {e}")
 
-    # Stop Jenkins controller
-    try:
-        await jenkins_controller.stop()
-        print("✅ Jenkins Controller stopped")
-    except Exception as e:
-        print(f"⚠️  Error stopping Jenkins controller: {e}")
+    print("✅ Shutdown complete")
 
 
 app = FastAPI(

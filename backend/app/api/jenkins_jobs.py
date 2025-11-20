@@ -8,11 +8,15 @@ from sqlalchemy import select, desc
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.jenkins_job import JenkinsJob, JobType
 from app.models.jenkins_build import JenkinsBuild, BuildStatus
-from app.services.jenkins_controller import jenkins_controller
+from app.services.jenkins_service import jenkins_service
 
 router = APIRouter(prefix="/api/jenkins", tags=["Jenkins Jobs"])
 
@@ -142,8 +146,17 @@ async def create_job(
     db.commit()
     db.refresh(job)
 
+    # Create job in Jenkins
+    try:
+        await jenkins_service.create_job_in_jenkins(job)
+    except Exception as e:
+        # Rollback if Jenkins creation fails
+        db.delete(job)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to create job in Jenkins: {str(e)}")
+
     return {
-        "message": f"Job '{job.name}' created successfully",
+        "message": f"Job '{job.name}' created successfully in Jenkins and local database",
         "job": job.to_dict()
     }
 
@@ -239,6 +252,12 @@ async def delete_job(
 
     job_name = job.name
 
+    # Delete from Jenkins first
+    try:
+        await jenkins_service.delete_job_from_jenkins(job_name)
+    except Exception as e:
+        logger.warning(f"Failed to delete job from Jenkins: {e}")
+
     # Delete builds if requested
     if delete_builds:
         db.execute(
@@ -249,7 +268,7 @@ async def delete_job(
     db.commit()
 
     return {
-        "message": f"Job '{job_name}' deleted successfully"
+        "message": f"Job '{job_name}' deleted successfully from Jenkins and local database"
     }
 
 
@@ -264,11 +283,17 @@ async def enable_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Enable in Jenkins
+    try:
+        await jenkins_service.enable_job_in_jenkins(job.name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to enable job in Jenkins: {str(e)}")
+
     job.enabled = True
     db.commit()
 
     return {
-        "message": f"Job '{job.name}' enabled",
+        "message": f"Job '{job.name}' enabled in Jenkins",
         "job": job.to_dict()
     }
 
@@ -284,11 +309,17 @@ async def disable_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # Disable in Jenkins
+    try:
+        await jenkins_service.disable_job_in_jenkins(job.name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to disable job in Jenkins: {str(e)}")
+
     job.enabled = False
     db.commit()
 
     return {
-        "message": f"Job '{job.name}' disabled",
+        "message": f"Job '{job.name}' disabled in Jenkins",
         "job": job.to_dict()
     }
 
@@ -309,16 +340,15 @@ async def trigger_build(
     This is equivalent to clicking "Build Now" in Jenkins
     """
     try:
-        build = await jenkins_controller.trigger_build(
+        build = await jenkins_service.trigger_build(
             db=db,
             job_id=job_id,
             parameters=request.parameters,
-            triggered_by=request.triggered_by,
-            trigger_cause="API"
+            triggered_by=request.triggered_by
         )
 
         return {
-            "message": f"Build #{build.build_number} triggered",
+            "message": f"Build #{build.build_number} triggered in Jenkins",
             "build": build.to_dict()
         }
 
@@ -375,7 +405,7 @@ async def get_build_console(
 
     This is equivalent to the Jenkins console output view
     """
-    console_output = await jenkins_controller.get_build_console_output(db, build_id)
+    console_output = await jenkins_service.get_build_console_output(db, build_id)
 
     if console_output is None:
         raise HTTPException(status_code=404, detail="Build not found")
@@ -396,13 +426,13 @@ async def abort_build(
 
     This is equivalent to clicking "Abort" in Jenkins
     """
-    success = await jenkins_controller.abort_build(db, build_id)
+    success = await jenkins_service.abort_build(db, build_id)
 
     if not success:
         raise HTTPException(status_code=400, detail="Build cannot be aborted (not running or not found)")
 
     return {
-        "message": "Build aborted successfully",
+        "message": "Build aborted successfully in Jenkins",
         "build_id": build_id
     }
 
@@ -461,10 +491,76 @@ async def get_queue_stats():
     """
     Get detailed queue and executor statistics
 
-    This provides insights into the Jenkins-style queue system including:
-    - Multi-state queue breakdown (waiting, blocked, buildable, pending, running)
-    - Executor utilization
-    - Build priorities
-    - Blocking reasons
+    This provides insights into the Jenkins queue system
     """
-    return await jenkins_controller.get_queue_stats()
+    return await jenkins_service.get_queue_stats()
+
+
+# =============================================================================
+# Jenkins Sync Operations
+# =============================================================================
+
+@router.post("/sync/jobs", response_model=dict)
+async def sync_jobs_from_jenkins(
+    db: Session = Depends(get_db)
+):
+    """
+    Sync all jobs from Jenkins to local database
+
+    This is useful for importing existing Jenkins jobs
+    """
+    try:
+        jobs = await jenkins_service.sync_all_jobs(db)
+
+        return {
+            "message": f"Synced {len(jobs)} jobs from Jenkins",
+            "jobs": jobs
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to sync jobs: {str(e)}")
+
+
+@router.post("/sync/job/{job_name}", response_model=dict)
+async def sync_job_from_jenkins(
+    job_name: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Sync a specific job from Jenkins to local database
+    """
+    try:
+        job = await jenkins_service.sync_job_from_jenkins(db, job_name)
+
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job '{job_name}' not found in Jenkins")
+
+        return {
+            "message": f"Job '{job_name}' synced from Jenkins",
+            "job": job
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to sync job: {str(e)}")
+
+
+@router.get("/connection/status", response_model=dict)
+async def check_jenkins_connection():
+    """
+    Check connection status to Jenkins server
+    """
+    try:
+        is_connected = await jenkins_service.verify_connection()
+
+        return {
+            "connected": is_connected,
+            "jenkins_url": settings.JENKINS_URL,
+            "message": "Connected to Jenkins" if is_connected else "Failed to connect to Jenkins"
+        }
+
+    except Exception as e:
+        return {
+            "connected": False,
+            "jenkins_url": settings.JENKINS_URL,
+            "message": f"Connection error: {str(e)}"
+        }
