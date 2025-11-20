@@ -19,6 +19,7 @@ from sqlalchemy import inspect, text
 from app.models.jenkins_job import JenkinsJob
 from app.models.jenkins_build import JenkinsBuild
 from app.models.user import User
+from app.models.test_execution import TestExecution
 
 
 def _ensure_optional_columns():

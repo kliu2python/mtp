@@ -13,6 +13,7 @@ import io
 from app.core.database import get_db
 from app.models.jenkins_build import JenkinsBuild
 from app.models.jenkins_node import JenkinsNode
+from app.models.test_execution import TestExecution
 from app.services.ssh_session import SSHSession
 
 router = APIRouter()
@@ -471,3 +472,99 @@ async def generate_allure_report(
         if os.path.exists(zip_path):
             os.unlink(zip_path)
         raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
+
+
+@router.get("/executions")
+async def list_test_executions(
+    limit: int = 50,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    List test executions from database
+
+    Query params:
+        limit: Maximum number of executions to return (default: 50)
+        status: Filter by status (queued, running, completed, failed)
+    """
+    query = db.query(TestExecution)
+
+    if status:
+        from app.models.test_execution import TestStatus
+        try:
+            status_enum = TestStatus(status.lower())
+            query = query.filter(TestExecution.status == status_enum)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
+    executions = query.order_by(
+        TestExecution.created_at.desc()
+    ).limit(limit).all()
+
+    return {
+        "executions": [execution.to_dict() for execution in executions],
+        "total": len(executions)
+    }
+
+
+@router.get("/executions/{task_id}")
+async def get_test_execution(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get details of a specific test execution"""
+    execution = db.query(TestExecution).filter(
+        TestExecution.task_id == task_id
+    ).first()
+
+    if not execution:
+        raise HTTPException(status_code=404, detail="Test execution not found")
+
+    return execution.to_dict()
+
+
+@router.get("/executions/{task_id}/reports")
+async def get_execution_reports(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get available reports for a test execution"""
+    execution = db.query(TestExecution).filter(
+        TestExecution.task_id == task_id
+    ).first()
+
+    if not execution:
+        raise HTTPException(status_code=404, detail="Test execution not found")
+
+    reports = {
+        "task_id": task_id,
+        "has_allure_report": bool(execution.allure_report_path),
+        "has_html_report": bool(execution.html_report_path),
+        "allure_report_path": execution.allure_report_path,
+        "html_report_path": execution.html_report_path
+    }
+
+    # Check if report files actually exist (if paths are set)
+    if execution.allure_report_path and os.path.exists(execution.allure_report_path):
+        reports["allure_report_files_count"] = len(os.listdir(execution.allure_report_path))
+
+    return reports
+
+
+@router.delete("/executions/{task_id}")
+async def delete_test_execution(
+    task_id: str,
+    db: Session = Depends(get_db)
+):
+    """Delete a test execution record"""
+    execution = db.query(TestExecution).filter(
+        TestExecution.task_id == task_id
+    ).first()
+
+    if not execution:
+        raise HTTPException(status_code=404, detail="Test execution not found")
+
+    db.delete(execution)
+    db.commit()
+
+    return {"message": "Test execution deleted successfully", "task_id": task_id}
