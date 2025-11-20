@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
-        "http://frontend:80"
+        "http://frontend:80",
+        "https://mtp.qa.fortinet-us.com",
+        "http://mtp.qa.fortinet-us.com"
     ]
     
     # File Storage
