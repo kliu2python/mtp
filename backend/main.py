@@ -11,13 +11,14 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, jenkins_jobs, dashboard, apks, stf, schedules, ai_analysis
+from app.api import vms, devices, tests, files, reports, webhooks, jenkins_nodes, jenkins_jobs, dashboard, apks, stf, schedules, ai_analysis, auth, saml_auth
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
 # Import models to ensure they are registered with SQLAlchemy
 from app.models.jenkins_job import JenkinsJob
 from app.models.jenkins_build import JenkinsBuild
+from app.models.user import User
 
 
 def _ensure_optional_columns():
@@ -120,6 +121,11 @@ app.add_middleware(
 )
 
 # Include routers
+# Authentication routes (public)
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(saml_auth.router, prefix="/api/saml", tags=["SAML Authentication"])
+
+# Application routes
 app.include_router(vms.router, prefix="/api/vms", tags=["VMs"])
 app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
 app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])

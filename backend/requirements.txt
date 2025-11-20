@@ -40,6 +40,10 @@ apscheduler==3.10.4
 pytz==2023.3
 aiohttp==3.9.1
 
+# Authentication
+python3-saml==1.15.0
+email-validator==2.1.0
+
 # Monitoring
 prometheus-client==0.19.0
 psutil==5.9.6
