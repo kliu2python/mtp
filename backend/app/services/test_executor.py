@@ -12,44 +12,15 @@ from sqlalchemy.orm import Session
 from app.services.jenkins_pool import connection_pool
 from app.models.vm import VirtualMachine
 from app.models.jenkins_node import JenkinsNode
+from app.models.test_execution import TestExecution, TestStatus
 
 logger = logging.getLogger(__name__)
 
 
-class TestTask:
-    """Represents a test execution task"""
-
-    def __init__(self, task_id: str, config: Dict[str, Any]):
-        self.task_id = task_id
-        self.config = config
-        self.status = "queued"  # queued, running, completed, failed
-        self.progress = 0
-        self.result = None
-        self.error = None
-        self.node_id = None
-        self.start_time = None
-        self.end_time = None
-
-    def to_dict(self):
-        return {
-            "task_id": self.task_id,
-            "config": self.config,
-            "status": self.status,
-            "progress": self.progress,
-            "result": self.result,
-            "error": self.error,
-            "node_id": self.node_id,
-            "start_time": self.start_time.isoformat() if self.start_time else None,
-            "end_time": self.end_time.isoformat() if self.end_time else None,
-            "duration": (self.end_time - self.start_time).total_seconds() if self.start_time and self.end_time else None
-        }
-
-
 class TestExecutor:
-    """Test executor with Jenkins node pool integration"""
+    """Test executor with Jenkins node pool integration and database persistence"""
 
     def __init__(self):
-        self.tasks: Dict[str, TestTask] = {}
         self.task_queue: asyncio.Queue = None
         self.running = False
 
@@ -83,97 +54,130 @@ class TestExecutor:
             task_id: Unique task identifier
         """
         task_id = str(uuid.uuid4())
-        task = TestTask(task_id, config)
-        self.tasks[task_id] = task
 
-        # Start execution in background
-        asyncio.create_task(self._execute_test(task, db))
+        # Create database record
+        execution = TestExecution(
+            task_id=task_id,
+            config=config,
+            status=TestStatus.QUEUED,
+            progress=0
+        )
+        db.add(execution)
+        db.commit()
+        db.refresh(execution)
+
+        # Start execution in background - pass task_id instead of task object
+        asyncio.create_task(self._execute_test(task_id))
 
         logger.info(f"Test task {task_id} queued for VM {config.get('vm_id')}")
         return task_id
 
-    async def _execute_test(self, task: TestTask, db: Session):
+    async def _execute_test(self, task_id: str):
         """
         Execute a test task on an available Jenkins node
 
         Args:
-            task: Test task to execute
-            db: Database session
+            task_id: Task identifier
         """
+        # Create a new database session for this background task
+        from app.core.database import SessionLocal
+        db = SessionLocal()
+
         try:
-            task.status = "acquiring_node"
-            task.progress = 10
+            # Get execution from database
+            execution = db.query(TestExecution).filter(TestExecution.task_id == task_id).first()
+            if not execution:
+                logger.error(f"Task {task_id}: Not found in database")
+                return
+
+            # Update status
+            execution.status = TestStatus.ACQUIRING_NODE
+            execution.progress = 10
+            db.commit()
 
             # Get required labels from config
-            labels = task.config.get("labels", [])
+            labels = execution.config.get("labels", [])
 
             # Acquire a node from the pool
             node = connection_pool.acquire_node(db, labels=labels)
 
             if not node:
-                task.status = "failed"
-                task.error = "No available nodes in the pool"
-                logger.error(f"Task {task.task_id}: No available nodes")
+                execution.status = TestStatus.FAILED
+                execution.error = "No available nodes in the pool"
+                db.commit()
+                logger.error(f"Task {task_id}: No available nodes")
                 return
 
-            task.node_id = str(node.id)
-            task.status = "running"
-            task.start_time = datetime.utcnow()
-            task.progress = 20
+            execution.node_id = str(node.id)
+            execution.status = TestStatus.RUNNING
+            execution.start_time = datetime.utcnow()
+            execution.progress = 20
+            db.commit()
 
-            logger.info(f"Task {task.task_id} acquired node {node.name}")
+            logger.info(f"Task {task_id} acquired node {node.name}")
 
             try:
                 # Check execution method (docker or ssh)
-                execution_method = task.config.get("execution_method", "ssh")
+                execution_method = execution.config.get("execution_method", "ssh")
 
                 if execution_method == "docker":
                     # Execute test in Docker container
-                    result = await self._run_docker_test_on_node(node, task, db)
+                    result = await self._run_docker_test_on_node(node, execution, db)
                 else:
                     # Get VM details for SSH execution
-                    vm_id = task.config.get("vm_id")
+                    vm_id = execution.config.get("vm_id")
                     vm = db.get(VirtualMachine, vm_id)
 
                     if not vm:
                         raise Exception(f"VM {vm_id} not found")
 
                     # Execute test on the node via SSH
-                    result = await self._run_test_on_node(node, vm, task, db)
+                    result = await self._run_test_on_node(node, vm, execution, db)
 
-                task.status = "completed"
-                task.progress = 100
-                task.result = result
-                task.end_time = datetime.utcnow()
+                execution.status = TestStatus.COMPLETED
+                execution.progress = 100
+                execution.result = result
+                execution.end_time = datetime.utcnow()
+                db.commit()
 
                 # Update node metrics
                 test_passed = result.get("status") == "passed"
-                duration = int((task.end_time - task.start_time).total_seconds())
-                connection_pool.update_node_metrics(db, task.node_id, test_passed, duration)
+                duration = int((execution.end_time - execution.start_time).total_seconds())
+                connection_pool.update_node_metrics(db, execution.node_id, test_passed, duration)
 
-                logger.info(f"Task {task.task_id} completed successfully on node {node.name}")
+                logger.info(f"Task {task_id} completed successfully on node {node.name}")
 
             except Exception as e:
-                task.status = "failed"
-                task.error = str(e)
-                task.end_time = datetime.utcnow()
-                logger.error(f"Task {task.task_id} failed: {e}")
+                execution.status = TestStatus.FAILED
+                execution.error = str(e)
+                execution.end_time = datetime.utcnow()
+                db.commit()
+                logger.error(f"Task {task_id} failed: {e}")
 
             finally:
                 # Release the node back to the pool
-                connection_pool.release_node(db, task.node_id)
-                logger.info(f"Task {task.task_id} released node {node.name}")
+                connection_pool.release_node(db, execution.node_id)
+                logger.info(f"Task {task_id} released node {node.name}")
 
         except Exception as e:
-            task.status = "failed"
-            task.error = str(e)
-            logger.error(f"Task {task.task_id} error: {e}")
+            logger.error(f"Task {task_id} error: {e}")
+            # Try to update database if possible
+            try:
+                execution = db.query(TestExecution).filter(TestExecution.task_id == task_id).first()
+                if execution:
+                    execution.status = TestStatus.FAILED
+                    execution.error = str(e)
+                    db.commit()
+            except:
+                pass
+        finally:
+            db.close()
 
     async def _run_test_on_node(
         self,
         node: JenkinsNode,
         vm: VirtualMachine,
-        task: TestTask,
+        execution: TestExecution,
         db: Session
     ) -> Dict[str, Any]:
         """
@@ -182,14 +186,14 @@ class TestExecutor:
         Args:
             node: Jenkins node to run tests on
             vm: VM being tested
-            task: Test task
+            execution: Test execution record
             db: Database session
 
         Returns:
             Test result dictionary
         """
-        test_suite = task.config.get("test_suite", "default")
-        test_cases = task.config.get("test_cases", [])
+        test_suite = execution.config.get("test_suite", "default")
+        test_cases = execution.config.get("test_cases", [])
 
         # Build test command
         # This is a simplified example - you would customize this based on your test framework
@@ -221,8 +225,9 @@ class TestExecutor:
         ssh_cmd.append(test_command)
 
         # Execute test
-        task.progress = 50
-        logger.info(f"Task {task.task_id}: Executing tests on node {node.name}")
+        execution.progress = 50
+        db.commit()
+        logger.info(f"Task {execution.task_id}: Executing tests on node {node.name}")
 
         try:
             # Run the test command with timeout
@@ -233,13 +238,14 @@ class TestExecutor:
             )
 
             # Wait for completion with timeout
-            timeout = task.config.get("timeout", 3600)  # Default 1 hour
+            timeout = execution.config.get("timeout", 3600)  # Default 1 hour
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=timeout
             )
 
-            task.progress = 90
+            execution.progress = 90
+            db.commit()
 
             # Parse results
             result = {
@@ -255,7 +261,7 @@ class TestExecutor:
             return result
 
         except asyncio.TimeoutError:
-            logger.error(f"Task {task.task_id}: Test execution timed out")
+            logger.error(f"Task {execution.task_id}: Test execution timed out")
             return {
                 "status": "failed",
                 "error": f"Test execution timed out after {timeout} seconds",
@@ -264,7 +270,7 @@ class TestExecutor:
                 "node_id": str(node.id)
             }
         except Exception as e:
-            logger.error(f"Task {task.task_id}: Test execution error: {e}")
+            logger.error(f"Task {execution.task_id}: Test execution error: {e}")
             return {
                 "status": "failed",
                 "error": str(e),
@@ -276,7 +282,7 @@ class TestExecutor:
     async def _run_docker_test_on_node(
         self,
         node: JenkinsNode,
-        task: TestTask,
+        execution: TestExecution,
         db: Session
     ) -> Dict[str, Any]:
         """
@@ -285,27 +291,31 @@ class TestExecutor:
 
         Args:
             node: Jenkins node to run tests on
-            task: Test task
+            execution: Test execution record
             db: Database session
 
         Returns:
             Test result dictionary
         """
-        # Extract configuration from task
-        test_suite = task.config.get("test_suite", "suites/mobile/suites/ftm/ios/tests")
-        test_markers = task.config.get("test_markers", "ios_ftm and functional")
-        lab_config_path = task.config.get("lab_config", "/test_files/mobile_auto/ios16_ftm_testing_config.yml")
-        platform = task.config.get("platform", "ios")  # ios or android
+        # Extract configuration from execution
+        test_suite = execution.config.get("test_suite", "suites/mobile/suites/ftm/ios/tests")
+        test_markers = execution.config.get("test_markers", "ios_ftm and functional")
+        lab_config_path = execution.config.get("lab_config", "/test_files/mobile_auto/ios16_ftm_testing_config.yml")
+        platform = execution.config.get("platform", "ios")  # ios or android
 
         # Docker configuration
-        docker_registry = task.config.get("docker_registry", "10.160.16.60")
-        docker_image = task.config.get("docker_image", "pytest-automation/pytest_automation")
-        docker_tag = task.config.get("docker_tag", "latest")
-        container_name = task.config.get("container_name", f"mtp_test_{task.task_id[:8]}")
+        docker_registry = execution.config.get("docker_registry", "10.160.16.60")
+        docker_image = execution.config.get("docker_image", "pytest-automation/pytest_automation")
+        docker_tag = execution.config.get("docker_tag", "latest")
+        container_name = execution.config.get("container_name", f"mtp_test_{execution.task_id[:8]}")
 
         # Workspace configuration
-        workspace = task.config.get("workspace", "/home/jenkins/workspace/mobile_automation")
-        config_mount_source = task.config.get("config_mount", "/home/jenkins/custom_config")
+        workspace = execution.config.get("workspace", "/home/jenkins/workspace/mobile_automation")
+        config_mount_source = execution.config.get("config_mount", "/home/jenkins/custom_config")
+
+        # Report directories
+        allure_results_dir = f"{workspace}/allure-results"
+        allure_report_dir = f"{workspace}/allure-report"
 
         # Build Docker execution script
         docker_script = f"""#!/bin/bash
@@ -314,7 +324,8 @@ set -e
 # Configuration
 JOB_BASE_NAME="{container_name}"
 WORKSPACE="{workspace}"
-ALLURE_RESULTS_DIR="${{WORKSPACE}}/allure-results"
+ALLURE_RESULTS_DIR="{allure_results_dir}"
+ALLURE_REPORT_DIR="{allure_report_dir}"
 DOCKER_IMAGE="{docker_registry}/{docker_image}:{docker_tag}"
 
 # Check if Docker daemon is running
@@ -334,6 +345,7 @@ docker version --format '{{{{.Server.Version}}}}'
 echo "Cleaning up previous test results..."
 rm -rf ${{ALLURE_RESULTS_DIR}} || true
 mkdir -p ${{ALLURE_RESULTS_DIR}}
+mkdir -p ${{ALLURE_REPORT_DIR}}
 
 echo "Stopping existing containers..."
 docker kill $(docker ps -aqf name=${{JOB_BASE_NAME}}) 2>/dev/null || true
@@ -419,8 +431,9 @@ exit ${EXIT_CODE}
         ssh_cmd.append(docker_script)
 
         # Execute test
-        task.progress = 50
-        logger.info(f"Task {task.task_id}: Executing Docker-based tests on node {node.name}")
+        execution.progress = 50
+        db.commit()
+        logger.info(f"Task {execution.task_id}: Executing Docker-based tests on node {node.name}")
 
         try:
             # Run the Docker test script with timeout
@@ -431,13 +444,18 @@ exit ${EXIT_CODE}
             )
 
             # Wait for completion with timeout
-            timeout = task.config.get("timeout", 3600)  # Default 1 hour
+            timeout = execution.config.get("timeout", 3600)  # Default 1 hour
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(),
                 timeout=timeout
             )
 
-            task.progress = 90
+            execution.progress = 90
+            db.commit()
+
+            # Store report paths
+            execution.allure_report_path = allure_results_dir
+            db.commit()
 
             # Parse results
             result = {
@@ -451,14 +469,16 @@ exit ${EXIT_CODE}
                 "docker_image": f"{docker_registry}/{docker_image}:{docker_tag}",
                 "container_name": container_name,
                 "node_id": str(node.id),
-                "execution_method": "docker"
+                "execution_method": "docker",
+                "allure_results_dir": allure_results_dir,
+                "allure_report_dir": allure_report_dir
             }
 
-            logger.info(f"Task {task.task_id}: Docker test completed with return code {process.returncode}")
+            logger.info(f"Task {execution.task_id}: Docker test completed with return code {process.returncode}")
             return result
 
         except asyncio.TimeoutError:
-            logger.error(f"Task {task.task_id}: Docker test execution timed out")
+            logger.error(f"Task {execution.task_id}: Docker test execution timed out")
             return {
                 "status": "failed",
                 "error": f"Docker test execution timed out after {timeout} seconds",
@@ -467,7 +487,7 @@ exit ${EXIT_CODE}
                 "execution_method": "docker"
             }
         except Exception as e:
-            logger.error(f"Task {task.task_id}: Docker test execution error: {e}")
+            logger.error(f"Task {execution.task_id}: Docker test execution error: {e}")
             return {
                 "status": "failed",
                 "error": str(e),
@@ -476,34 +496,86 @@ exit ${EXIT_CODE}
                 "execution_method": "docker"
             }
 
-    async def get_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_status(self, task_id: str, db: Session = None) -> Optional[Dict[str, Any]]:
         """
-        Get test task status
+        Get test task status from database
 
         Args:
             task_id: Task identifier
+            db: Database session (optional, will create one if not provided)
 
         Returns:
             Task status dictionary or None if not found
         """
-        task = self.tasks.get(task_id)
-        if not task:
-            return None
-        return task.to_dict()
+        should_close_db = False
+        if db is None:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            should_close_db = True
 
-    def get_all_tasks(self) -> List[Dict[str, Any]]:
-        """Get status of all tasks"""
-        return [task.to_dict() for task in self.tasks.values()]
+        try:
+            execution = db.query(TestExecution).filter(TestExecution.task_id == task_id).first()
+            if not execution:
+                return None
+            return execution.to_dict()
+        finally:
+            if should_close_db:
+                db.close()
 
-    def clear_completed_tasks(self):
-        """Clear completed and failed tasks from memory"""
-        completed_ids = [
-            task_id for task_id, task in self.tasks.items()
-            if task.status in ["completed", "failed"]
-        ]
-        for task_id in completed_ids:
-            del self.tasks[task_id]
-        logger.info(f"Cleared {len(completed_ids)} completed tasks")
+    def get_all_tasks(self, db: Session = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get status of all tasks from database
+
+        Args:
+            db: Database session (optional)
+            limit: Maximum number of tasks to return
+
+        Returns:
+            List of task status dictionaries
+        """
+        should_close_db = False
+        if db is None:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            should_close_db = True
+
+        try:
+            executions = db.query(TestExecution).order_by(
+                TestExecution.created_at.desc()
+            ).limit(limit).all()
+            return [execution.to_dict() for execution in executions]
+        finally:
+            if should_close_db:
+                db.close()
+
+    def clear_completed_tasks(self, db: Session = None, days_old: int = 7):
+        """
+        Clear completed and failed tasks older than specified days from database
+
+        Args:
+            db: Database session (optional)
+            days_old: Delete tasks older than this many days
+        """
+        should_close_db = False
+        if db is None:
+            from app.core.database import SessionLocal
+            db = SessionLocal()
+            should_close_db = True
+
+        try:
+            from datetime import timedelta
+            cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+
+            deleted_count = db.query(TestExecution).filter(
+                TestExecution.status.in_([TestStatus.COMPLETED, TestStatus.FAILED]),
+                TestExecution.created_at < cutoff_date
+            ).delete()
+            db.commit()
+
+            logger.info(f"Cleared {deleted_count} old completed tasks")
+        finally:
+            if should_close_db:
+                db.close()
 
 
 # Global test executor instance

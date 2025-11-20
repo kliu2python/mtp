@@ -67,9 +67,11 @@ async def execute_test(
 
 
 @router.get("/status/{task_id}")
-async def get_test_status(task_id: str):
+async def get_test_status(task_id: str, db: Session = Depends(get_db)):
     """Get test execution status"""
-    status = await test_executor.get_status(task_id)
+    status = await test_executor.get_status(task_id, db)
+    if not status:
+        raise HTTPException(status_code=404, detail="Test task not found")
     return status
 
 
@@ -111,7 +113,7 @@ async def rerun_test_with_tag(
 ):
     """Re-run a previous test with modified docker tag"""
     # Get the original test configuration
-    status = await test_executor.get_status(task_id)
+    status = await test_executor.get_status(task_id, db)
 
     if not status or 'config' not in status:
         raise HTTPException(status_code=404, detail="Test not found")
