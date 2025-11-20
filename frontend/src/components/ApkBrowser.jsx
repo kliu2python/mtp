@@ -30,7 +30,7 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://10.160.24.60:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const ApkBrowser = () => {
   const [apks, setApks] = useState([]);

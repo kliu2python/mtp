@@ -37,7 +37,7 @@ import axios from 'axios';
 
 const { Title, Text } = Typography;
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://10.160.24.60:8000';
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const WorkerDashboard = () => {
   const [overview, setOverview] = useState(null);
