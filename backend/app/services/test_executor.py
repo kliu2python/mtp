@@ -317,6 +317,19 @@ WORKSPACE="{workspace}"
 ALLURE_RESULTS_DIR="${{WORKSPACE}}/allure-results"
 DOCKER_IMAGE="{docker_registry}/{docker_image}:{docker_tag}"
 
+# Check if Docker daemon is running
+echo "Checking Docker daemon..."
+if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker daemon is not running!"
+    echo "Please start Docker with: sudo systemctl start docker"
+    exit 1
+fi
+echo "Docker daemon is running"
+
+# Check Docker version
+echo "Docker version:"
+docker version --format '{{{{.Server.Version}}}}'
+
 # Cleanup
 echo "Cleaning up previous test results..."
 rm -rf ${{ALLURE_RESULTS_DIR}} || true
