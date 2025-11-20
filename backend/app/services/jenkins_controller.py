@@ -15,6 +15,7 @@ from app.models.jenkins_job import JenkinsJob, JobType
 from app.models.jenkins_build import JenkinsBuild, BuildStatus
 from app.models.jenkins_node import JenkinsNode, NodeStatus
 from app.services.jenkins_pool import connection_pool
+from app.services.jenkins_queue import jenkins_queue, BuildPriority
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,14 @@ logger = logging.getLogger(__name__)
 class JenkinsController:
     """
     Jenkins Controller - Main orchestration service
-    Mimics Jenkins master/controller functionality
+    Mimics Jenkins master/controller functionality with advanced queue management
     """
 
-    def __init__(self):
-        self.build_queue: asyncio.Queue = None
+    def __init__(self, max_concurrent_builds: int = 10):
         self.running = False
         self.active_builds: Dict[str, JenkinsBuild] = {}
+        self.max_concurrent_builds = max_concurrent_builds
+        self.executor_semaphore = asyncio.Semaphore(max_concurrent_builds)
 
     async def start(self):
         """Start the Jenkins controller"""
@@ -36,15 +38,20 @@ class JenkinsController:
             return
 
         self.running = True
-        self.build_queue = asyncio.Queue()
 
-        # Start background worker to process build queue
-        asyncio.create_task(self._process_build_queue())
-        logger.info("Jenkins Controller started")
+        # Start the queue system
+        await jenkins_queue.start()
+
+        # Start multiple concurrent build processors (executors)
+        for i in range(self.max_concurrent_builds):
+            asyncio.create_task(self._build_executor_worker(i))
+
+        logger.info(f"Jenkins Controller started with {self.max_concurrent_builds} executors")
 
     async def stop(self):
         """Stop the Jenkins controller"""
         self.running = False
+        await jenkins_queue.stop()
         logger.info("Jenkins Controller stopped")
 
     async def trigger_build(
@@ -53,7 +60,9 @@ class JenkinsController:
         job_id: str,
         parameters: Optional[Dict[str, Any]] = None,
         triggered_by: str = "Manual",
-        trigger_cause: str = "User"
+        trigger_cause: str = "User",
+        priority: int = BuildPriority.NORMAL,
+        quiet_period: int = 0
     ) -> JenkinsBuild:
         """
         Trigger a new build for a job (like clicking "Build Now" in Jenkins)
@@ -64,6 +73,8 @@ class JenkinsController:
             parameters: Optional build parameters
             triggered_by: Who triggered the build
             trigger_cause: Reason for triggering
+            priority: Build priority (higher = more urgent)
+            quiet_period: Seconds to wait before building
 
         Returns:
             JenkinsBuild object
@@ -112,39 +123,82 @@ class JenkinsController:
         db.commit()
         db.refresh(build)
 
-        # Queue the build for execution
-        await self.build_queue.put((str(build.id), db))
+        # Add to smart queue system
+        # Use last successful node as preferred node (affinity)
+        prefer_node_id = None
+        if job.last_build_status == "SUCCESS":
+            last_build = db.execute(
+                select(JenkinsBuild)
+                .where(JenkinsBuild.job_id == job.id, JenkinsBuild.result == "SUCCESS")
+                .order_by(desc(JenkinsBuild.end_time))
+                .limit(1)
+            ).scalar_one_or_none()
+            if last_build and last_build.node_id:
+                prefer_node_id = str(last_build.node_id)
 
-        logger.info(f"Build #{build.build_number} queued for job {job.name}")
+        await jenkins_queue.enqueue(
+            build_id=str(build.id),
+            job_id=str(job.id),
+            job_name=job.name,
+            build_number=build.build_number,
+            required_labels=job.required_labels or [],
+            priority=priority,
+            quiet_period=quiet_period,
+            max_concurrent_per_job=job.max_concurrent_builds or 1,
+            prefer_node_id=prefer_node_id
+        )
+
+        logger.info(f"Build #{build.build_number} queued for job {job.name} with priority {priority}")
         return build
 
-    async def _process_build_queue(self):
+    async def _build_executor_worker(self, executor_id: int):
         """
-        Background worker that processes the build queue
-        This is like Jenkins' queue processor that assigns builds to agents
+        Build executor worker - processes builds from the queue
+        Multiple executors run concurrently to handle parallel builds
+        This is like Jenkins' executor threads
+
+        Args:
+            executor_id: Unique ID for this executor
         """
+        logger.info(f"Executor {executor_id} started")
+
         while self.running:
             try:
-                # Get next build from queue (with timeout to allow checking self.running)
-                try:
-                    build_id, db = await asyncio.wait_for(self.build_queue.get(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    continue
+                # Wait for available executor slot
+                async with self.executor_semaphore:
+                    # Get database session
+                    from app.core.database import SessionLocal
+                    db = SessionLocal()
 
-                # Process the build in background
-                asyncio.create_task(self._execute_build(build_id, db))
+                    try:
+                        # Get next buildable item from queue
+                        queue_item = await jenkins_queue.get_next_buildable(db)
+
+                        if not queue_item:
+                            # No buildable items, wait a bit
+                            await asyncio.sleep(0.5)
+                            continue
+
+                        logger.info(f"Executor {executor_id} picked up build #{queue_item.build_number}")
+
+                        # Execute the build
+                        await self._execute_build(queue_item.build_id, db, executor_id)
+
+                    finally:
+                        db.close()
 
             except Exception as e:
-                logger.error(f"Error in build queue processor: {e}")
+                logger.error(f"Error in executor {executor_id}: {e}")
                 await asyncio.sleep(1)
 
-    async def _execute_build(self, build_id: str, db: Session):
+    async def _execute_build(self, build_id: str, db: Session, executor_id: int = 0):
         """
         Execute a build on an agent (like Jenkins executing a job on a slave node)
 
         Args:
             build_id: UUID of the build
             db: Database session
+            executor_id: ID of the executor running this build
         """
         build = None
         node = None
@@ -154,6 +208,7 @@ class JenkinsController:
             build = db.get(JenkinsBuild, build_id)
             if not build:
                 logger.error(f"Build {build_id} not found")
+                await jenkins_queue.mark_completed(build_id)
                 return
 
             self.active_builds[build_id] = build
@@ -162,14 +217,20 @@ class JenkinsController:
             build.status = BuildStatus.PENDING
             self._append_console_output(build, f"[Jenkins] Build #{build.build_number} for job '{build.job_name}'\n")
             self._append_console_output(build, f"[Jenkins] Queued at {build.queued_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            self._append_console_output(build, f"[Jenkins] Waiting for available agent...\n")
+            self._append_console_output(build, f"[Jenkins] Executor #{executor_id} processing...\n")
+            self._append_console_output(build, f"[Jenkins] Acquiring agent...\n")
             db.commit()
 
             # Acquire an agent from the pool
             required_labels = build.build_config.get("required_labels", [])
             self._append_console_output(build, f"[Jenkins] Required labels: {required_labels}\n")
 
-            node = connection_pool.acquire_node(db, labels=required_labels)
+            # Use smart node selection with consistent hashing
+            node = connection_pool.acquire_node(
+                db,
+                labels=required_labels,
+                job_name=build.job_name
+            )
 
             if not node:
                 build.status = BuildStatus.FAILURE
@@ -177,7 +238,11 @@ class JenkinsController:
                 build.error_message = "No available agents matching the required labels"
                 self._append_console_output(build, f"[Jenkins] ERROR: No available agents\n")
                 db.commit()
+                await jenkins_queue.mark_completed(build_id)
                 return
+
+            # Mark as running in queue
+            await jenkins_queue.mark_running(build_id, str(node.id))
 
             # Assign agent to build
             build.node_id = node.id
@@ -263,6 +328,9 @@ class JenkinsController:
             if node:
                 connection_pool.release_node(db, str(node.id))
                 logger.info(f"Released agent {node.name}")
+
+            # Mark as completed in queue
+            await jenkins_queue.mark_completed(build_id)
 
             # Remove from active builds
             if build_id in self.active_builds:
@@ -632,7 +700,25 @@ exit ${EXIT_CODE}
         if build.node_id:
             connection_pool.release_node(db, str(build.node_id))
 
+        # Remove from queue
+        await jenkins_queue.abort_build(build_id)
+
+        # Remove from active builds
+        if build_id in self.active_builds:
+            del self.active_builds[build_id]
+
         return True
+
+    async def get_queue_stats(self) -> Dict[str, Any]:
+        """Get queue and executor statistics"""
+        queue_stats = await jenkins_queue.get_queue_stats()
+
+        return {
+            **queue_stats,
+            "max_concurrent_builds": self.max_concurrent_builds,
+            "active_builds": len(self.active_builds),
+            "active_build_ids": list(self.active_builds.keys())
+        }
 
 
 # Global Jenkins controller instance

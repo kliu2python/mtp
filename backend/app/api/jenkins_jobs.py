@@ -454,3 +454,17 @@ async def get_jenkins_stats(
         "running_builds": [b.to_dict() for b in running_builds],
         "queued_builds": [b.to_dict() for b in queued_builds]
     }
+
+
+@router.get("/queue/stats", response_model=dict)
+async def get_queue_stats():
+    """
+    Get detailed queue and executor statistics
+
+    This provides insights into the Jenkins-style queue system including:
+    - Multi-state queue breakdown (waiting, blocked, buildable, pending, running)
+    - Executor utilization
+    - Build priorities
+    - Blocking reasons
+    """
+    return await jenkins_controller.get_queue_stats()

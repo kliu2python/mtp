@@ -6,6 +6,7 @@ import asyncio
 import logging
 import subprocess
 import time
+import hashlib
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from threading import Lock
@@ -181,13 +182,24 @@ class NodeConnectionPool:
             "disk_usage": 0
         }
 
-    def acquire_node(self, db: Session, labels: Optional[List[str]] = None) -> Optional[JenkinsNode]:
+    def acquire_node(
+        self,
+        db: Session,
+        labels: Optional[List[str]] = None,
+        prefer_node_id: Optional[str] = None,
+        job_name: Optional[str] = None,
+        dry_run: bool = False
+    ) -> Optional[JenkinsNode]:
         """
-        Acquire an available node from the pool
+        Acquire an available node from the pool using smart load balancing
+        Inspired by Jenkins' consistent hash and load balancing strategies
 
         Args:
             db: Database session
             labels: Optional list of required labels (e.g., ["android", "linux"])
+            prefer_node_id: Preferred node ID (affinity)
+            job_name: Job name for consistent hashing
+            dry_run: If True, don't actually acquire, just check availability
 
         Returns:
             Available JenkinsNode or None
@@ -196,7 +208,7 @@ class NodeConnectionPool:
             # Build query for available nodes
             query = select(JenkinsNode).where(
                 JenkinsNode.enabled == True,
-                JenkinsNode.status.in_([NodeStatus.ONLINE, NodeStatus.TESTING]),
+                JenkinsNode.status.in_([NodeStatus.ONLINE, NodeStatus.TESTING, NodeStatus.BUSY]),
             )
 
             # Filter by labels if specified
@@ -205,22 +217,128 @@ class NodeConnectionPool:
                     query = query.where(JenkinsNode.labels.contains([label]))
 
             # Get all matching nodes
-            nodes = db.execute(query).scalars().all()
+            all_nodes = db.execute(query).scalars().all()
 
-            # Find node with available executors
-            for node in nodes:
-                if node.current_executors < node.max_executors:
-                    # Increment executor count
-                    node.current_executors += 1
-                    node.status = NodeStatus.BUSY
+            # Filter nodes with available executors
+            available_nodes = [n for n in all_nodes if n.current_executors < n.max_executors]
+
+            if not available_nodes:
+                logger.warning(f"No available nodes found for labels: {labels}")
+                return None
+
+            # Strategy 1: Prefer specified node if available
+            if prefer_node_id:
+                preferred = next((n for n in available_nodes if str(n.id) == prefer_node_id), None)
+                if preferred:
+                    logger.info(f"Using preferred node {preferred.name}")
+                    if not dry_run:
+                        preferred.current_executors += 1
+                        preferred.status = NodeStatus.BUSY
+                        db.commit()
+                        db.refresh(preferred)
+                    return preferred
+
+            # Strategy 2: Use consistent hashing if job_name provided
+            if job_name:
+                selected = self._consistent_hash_node_selection(available_nodes, job_name)
+                logger.info(f"Selected node {selected.name} via consistent hashing for job '{job_name}'")
+                if not dry_run:
+                    selected.current_executors += 1
+                    selected.status = NodeStatus.BUSY
                     db.commit()
-                    db.refresh(node)
+                    db.refresh(selected)
+                return selected
 
-                    logger.info(f"Acquired node {node.name} ({node.current_executors}/{node.max_executors} executors)")
-                    return node
+            # Strategy 3: Load-based selection (least loaded first)
+            selected = self._load_balanced_selection(available_nodes)
+            logger.info(f"Selected node {selected.name} via load balancing")
 
-            logger.warning(f"No available nodes found for labels: {labels}")
-            return None
+            if not dry_run:
+                selected.current_executors += 1
+                selected.status = NodeStatus.BUSY
+                db.commit()
+                db.refresh(selected)
+                logger.info(f"Acquired node {selected.name} ({selected.current_executors}/{selected.max_executors} executors)")
+
+            return selected
+
+    def _consistent_hash_node_selection(self, nodes: List[JenkinsNode], job_name: str) -> JenkinsNode:
+        """
+        Select node using consistent hashing
+        Inspired by Jenkins LoadBalancer consistent hash strategy
+        This ensures the same job tends to run on the same node
+
+        Args:
+            nodes: List of available nodes
+            job_name: Job name for hashing
+
+        Returns:
+            Selected node
+        """
+        # Hash the job name
+        hash_value = int(hashlib.md5(job_name.encode()).hexdigest(), 16)
+
+        # Calculate node scores based on hash and availability
+        node_scores = []
+        for node in nodes:
+            # Factor in executor availability (more available = higher score)
+            available_executors = node.max_executors - node.current_executors
+            availability_weight = available_executors / node.max_executors
+
+            # Combine hash with availability (100x weight for availability)
+            node_hash = int(hashlib.md5(f"{node.name}:{job_name}".encode()).hexdigest(), 16)
+            score = (node_hash % 1000) + (availability_weight * 100000)
+
+            node_scores.append((score, node))
+
+        # Sort by score and return highest
+        node_scores.sort(key=lambda x: x[0], reverse=True)
+        return node_scores[0][1]
+
+    def _load_balanced_selection(self, nodes: List[JenkinsNode]) -> JenkinsNode:
+        """
+        Select node based on current load
+        Considers: executor utilization, CPU, memory, test success rate
+
+        Args:
+            nodes: List of available nodes
+
+        Returns:
+            Best node based on load
+        """
+        node_scores = []
+
+        for node in nodes:
+            # Calculate executor utilization (lower is better)
+            executor_util = node.current_executors / node.max_executors if node.max_executors > 0 else 1.0
+
+            # Calculate resource usage (lower is better)
+            cpu_load = node.cpu_usage / 100.0 if node.cpu_usage else 0.5
+            memory_load = node.memory_usage / 100.0 if node.memory_usage else 0.5
+
+            # Calculate success rate (higher is better)
+            total_tests = node.total_tests_executed
+            success_rate = (node.total_tests_passed / total_tests) if total_tests > 0 else 0.5
+
+            # Combined score (lower is better for executor/cpu/memory, higher for success)
+            # Weights: executor=40%, cpu=20%, memory=20%, success=20%
+            score = (
+                (1.0 - executor_util) * 40 +  # More available executors = better
+                (1.0 - cpu_load) * 20 +         # Lower CPU = better
+                (1.0 - memory_load) * 20 +      # Lower memory = better
+                success_rate * 20                # Higher success rate = better
+            )
+
+            node_scores.append((score, node))
+            logger.debug(
+                f"Node {node.name}: score={score:.2f} "
+                f"(exec_util={executor_util:.2f}, cpu={cpu_load:.2f}, "
+                f"mem={memory_load:.2f}, success={success_rate:.2f})"
+            )
+
+        # Sort by score (highest first) and return best
+        node_scores.sort(key=lambda x: x[0], reverse=True)
+        return node_scores[0][1]
 
     def release_node(self, db: Session, node_id: str):
         """
