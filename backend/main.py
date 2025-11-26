@@ -29,16 +29,16 @@ def _ensure_optional_columns():
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
     if "ssh_password" not in existing_columns:
         statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
+    if "provider" not in existing_columns:
+        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
 
-    if not statements:
-        # Still need to check for data migration even if no schema changes
-        pass
-    else:
+    if statements:
         with engine.begin() as connection:
             for statement in statements:
                 connection.execute(statement)
 
     # Migrate existing lowercase provider values to uppercase
+    # After adding the column (if needed), we can safely run the migration
     with engine.begin() as connection:
         connection.execute(text(
             "UPDATE virtual_machines SET provider = 'DOCKER' WHERE provider = 'docker'"
