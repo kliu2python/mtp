@@ -11,13 +11,12 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, tests, files, reports, webhooks, apks, stf, schedules, ai_analysis, auth, saml_auth, device_proxy
+from app.api import vms, devices, files, webhooks, apks, stf, ai_analysis, auth, saml_auth, device_proxy
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
 # Import models to ensure they are registered with SQLAlchemy
 from app.models.user import User
-from app.models.test_execution import TestExecution
 
 
 def _ensure_optional_columns():
@@ -63,16 +62,9 @@ async def lifespan(app: FastAPI):
     # Start background services
     from app.services.device_monitor import device_monitor
     from app.services.vm_monitor import vm_monitor
-    from app.services.scheduler_service import scheduler_service
 
     # asyncio.create_task(device_monitor.start())
     # asyncio.create_task(vm_monitor.start())
-
-    # Start scheduler service
-    try:
-        await scheduler_service.start()
-    except Exception as e:
-        print(f"⚠️  Scheduler service failed to start: {e}")
 
     print("✅ Background services started")
 
@@ -80,12 +72,6 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("🛑 Shutting down Test Platform...")
-
-    # Stop scheduler service
-    try:
-        await scheduler_service.stop()
-    except Exception as e:
-        print(f"⚠️  Error stopping scheduler: {e}")
 
 
 app = FastAPI(
@@ -112,13 +98,10 @@ app.include_router(saml_auth.router, prefix="/api/saml", tags=["SAML Authenticat
 # Application routes
 app.include_router(vms.router, prefix="/api/vms", tags=["VMs"])
 app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
-app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(apks.router, prefix="/api/apks", tags=["APKs"])
 app.include_router(stf.router, prefix="/api/stf", tags=["STF"])
-app.include_router(schedules.router, prefix="/api/schedules", tags=["Schedules"])
 app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
-app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
 
