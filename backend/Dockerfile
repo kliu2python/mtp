@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     android-tools-adb \
     openssh-client \
     sshpass \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements
