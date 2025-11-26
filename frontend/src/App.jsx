@@ -780,7 +780,7 @@ const VMs = () => {
               Stop
             </Button>
           )}
-          <Tooltip title="Run automated tests in Jenkins-style Docker execution">
+          <Tooltip title="Run automated tests with Docker execution">
             <Button
               size="small"
               type="primary"
@@ -1052,8 +1052,8 @@ const VMs = () => {
       >
         <Alert
           type="info"
-          message="Jenkins-Style Docker Execution"
-          description="This will execute tests on a Jenkins worker node using Docker containers, fetching configuration from lab config files."
+          message="Docker Test Execution"
+          description="This will execute tests using Docker containers, fetching configuration from lab config files."
           showIcon
           style={{ marginBottom: 16 }}
         />
