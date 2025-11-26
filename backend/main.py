@@ -11,7 +11,7 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, files, webhooks, apks, stf, ai_analysis, auth, saml_auth, device_proxy
+from app.api import vms, devices, files, webhooks, apks, stf, ai_analysis, auth, saml_auth, device_proxy, jenkins
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -104,6 +104,7 @@ app.include_router(stf.router, prefix="/api/stf", tags=["STF"])
 app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
+app.include_router(jenkins.router, prefix="/api/jenkins", tags=["Jenkins"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
