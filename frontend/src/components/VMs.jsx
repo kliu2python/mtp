@@ -24,8 +24,7 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
-  Switch
+  message
 } from 'antd';
 import {
   BarChartOutlined,
@@ -80,7 +79,6 @@ const VMs = () => {
   const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
   const [testTemplates, setTestTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [autoSelectAppFile, setAutoSelectAppFile] = useState(true);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -124,36 +122,18 @@ const VMs = () => {
     }
   };
 
-  const selectLatestAppFile = (apks) => {
-    if (!apks?.length) return;
-
-    const sorted = [...apks].sort((a, b) => {
-      const dateA = new Date(a.uploadDate || a.created_at || 0).getTime();
-      const dateB = new Date(b.uploadDate || b.created_at || 0).getTime();
-      return dateB - dateA;
-    });
-
-    testForm.setFieldsValue({ apk_id: sorted[0].name });
-  };
-
-  const fetchApksForPlatform = async (platform, { autoSelect = autoSelectAppFile } = {}) => {
+  const fetchApksForPlatform = async (platform) => {
     setLoadingApks(true);
     try {
       const response = await axios.get(`${API_URL}/api/files/`, {});
       console.log(response.data)
-
+      
       const files = response.data;
       const apkFiles = files.filter((file) => {
         const fileName = file?.name?.toLowerCase() || '';
         return platform === 'ios' ? fileName.endsWith('.ipa') : fileName.endsWith('.apk');
       });
       setAvailableApks(apkFiles);
-
-      if (apkFiles.length === 0) {
-        testForm.setFieldsValue({ apk_id: undefined });
-      } else if (autoSelect) {
-        selectLatestAppFile(apkFiles);
-      }
     } catch (error) {
       console.error('Failed to fetch APKs:', error);
       message.error('Failed to load app versions');
@@ -168,7 +148,6 @@ const VMs = () => {
     testForm.resetFields();
     setCurrentStep(0);
     setAppSourceType('file');
-    setAutoSelectAppFile(true);
     // Set default values based on VM
     const defaultPlatform = vm.platform === 'FortiGate' ? 'ios' : 'android';
     setSelectedPlatform(defaultPlatform);
@@ -1196,56 +1175,38 @@ const VMs = () => {
                   rules={[{ required: true, message: 'Please select an app file' }]}
                   tooltip="Select a specific app version from uploaded files"
                 >
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                      <Typography.Text type="secondary">
-                        Auto-select latest uploaded file for this platform
-                      </Typography.Text>
-                      <Switch
-                        size="small"
-                        checked={autoSelectAppFile}
-                        onChange={(checked) => {
-                          setAutoSelectAppFile(checked);
-                          if (checked) {
-                            selectLatestAppFile(availableApks);
-                          }
-                        }}
-                        disabled={!selectedPlatform}
-                      />
-                    </Space>
-                    <Select
-                      placeholder="Select app file"
-                      loading={loadingApks}
-                      disabled={!selectedPlatform}
-                      options={appFileOptions}
-                      optionRender={(option) => {
-                        const apk = option.data.apk;
-                        return (
-                          <Space direction="vertical" size={0}>
-                            <Typography.Text strong>{option.value}</Typography.Text>
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
-                                .filter(Boolean)
-                                .join(' • ')}
-                            </Typography.Text>
-                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                              Uploaded: {formatApkDate(apk.created_at)}
-                            </Typography.Text>
-                          </Space>
-                        );
-                      }}
-                      showSearch
-                      filterOption={(input, option) => {
-                        const searchText = input.toLowerCase();
-                        const apk = option?.data?.apk || {};
-                        return (
-                          (option?.label || '').toString().toLowerCase().includes(searchText) ||
-                          (apk.version_name || '').toLowerCase().includes(searchText) ||
-                          (apk.file_path || '').toLowerCase().includes(searchText)
-                        );
-                      }}
-                    />
-                  </Space>
+                  <Select
+                    placeholder="Select app file"
+                    loading={loadingApks}
+                    disabled={!selectedPlatform}
+                    options={appFileOptions}
+                    optionRender={(option) => {
+                      const apk = option.data.apk;
+                      return (
+                        <Space direction="vertical" size={0}>
+                          <Typography.Text strong>{option.value}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Uploaded: {formatApkDate(apk.created_at)}
+                          </Typography.Text>
+                        </Space>
+                      );
+                    }}
+                    showSearch
+                    filterOption={(input, option) => {
+                      const searchText = input.toLowerCase();
+                      const apk = option?.data?.apk || {};
+                      return (
+                        (option?.label || '').toString().toLowerCase().includes(searchText) ||
+                        (apk.version_name || '').toLowerCase().includes(searchText) ||
+                        (apk.file_path || '').toLowerCase().includes(searchText)
+                      );
+                    }}
+                  />
                 </Form.Item>
               ) : (
                 <Form.Item
