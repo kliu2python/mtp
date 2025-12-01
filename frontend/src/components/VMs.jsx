@@ -126,11 +126,13 @@ const VMs = () => {
     setLoadingApks(true);
     try {
       const response = await axios.get(`${API_URL}/api/files/`, {});
-      console.log(response)
-
-      // Backend returns the files under `apk_files` (same resource as File Browser)
-      const apkFiles = response.data?.apk_files || response.data?.items || [];
-      console.log(apkFiles)
+      console.log(response.data)
+      
+      const files = response.data;
+      const apkFiles = files.filter((file) => {
+        const fileName = file?.name?.toLowerCase() || '';
+        return platform === 'ios' ? fileName.endsWith('.ipa') : fileName.endsWith('.apk');
+      });
       setAvailableApks(apkFiles);
     } catch (error) {
       console.error('Failed to fetch APKs:', error);
@@ -587,8 +589,7 @@ const VMs = () => {
   };
 
   const appFileOptions = availableApks.map((apk) => ({
-    value: apk.id,
-    label: apk.display_name || apk.filename,
+    value: apk.name,
     apk,
   }));
 
@@ -1183,7 +1184,7 @@ const VMs = () => {
                       const apk = option.data.apk;
                       return (
                         <Space direction="vertical" size={0}>
-                          <Typography.Text strong>{apk.display_name || apk.filename || option.data.label}</Typography.Text>
+                          <Typography.Text strong>{option.value}</Typography.Text>
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                             {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
                               .filter(Boolean)
