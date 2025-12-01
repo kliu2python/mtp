@@ -255,7 +255,10 @@ const VMs = () => {
       const response = await axios.get(`${API_URL}/api/apks/`, {
         params: { platform: platform }
       });
-      setAvailableApks(response.data.items || []);
+
+      // Backend returns the files under `apk_files` (same resource as File Browser)
+      const apkFiles = response.data?.apk_files || response.data?.items || [];
+      setAvailableApks(apkFiles);
     } catch (error) {
       console.error('Failed to fetch APKs:', error);
       message.error('Failed to load app versions');
@@ -767,6 +770,25 @@ const VMs = () => {
     }
   };
 
+  const formatApkSize = (bytes) => {
+    if (!bytes || bytes <= 0) return 'Unknown size';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  const formatApkDate = (dateString) => {
+    if (!dateString) return 'Unknown upload time';
+    return new Date(dateString).toLocaleString();
+  };
+
+  const appFileOptions = availableApks.map((apk) => ({
+    value: apk.id,
+    label: apk.display_name || apk.filename,
+    apk,
+  }));
+
   const columns = [
     {
       title: 'Name',
@@ -1174,14 +1196,33 @@ const VMs = () => {
                     placeholder="Select app file"
                     loading={loadingApks}
                     disabled={!selectedPlatform}
-                    options={availableApks.map(apk => ({
-                      label: `${apk.display_name} - v${apk.version_name || 'N/A'}`,
-                      value: apk.id
-                    }))}
+                    options={appFileOptions}
+                    optionRender={(option) => {
+                      const apk = option.data.apk;
+                      return (
+                        <Space direction="vertical" size={0}>
+                          <Typography.Text strong>{apk.display_name || apk.filename || option.data.label}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Uploaded: {formatApkDate(apk.created_at)}
+                          </Typography.Text>
+                        </Space>
+                      );
+                    }}
                     showSearch
-                    filterOption={(input, option) =>
-                      option.label.toLowerCase().includes(input.toLowerCase())
-                    }
+                    filterOption={(input, option) => {
+                      const searchText = input.toLowerCase();
+                      const apk = option?.data?.apk || {};
+                      return (
+                        (option?.label || '').toString().toLowerCase().includes(searchText) ||
+                        (apk.version_name || '').toLowerCase().includes(searchText) ||
+                        (apk.file_path || '').toLowerCase().includes(searchText)
+                      );
+                    }}
                   />
                 </Form.Item>
               ) : (
@@ -1618,6 +1659,7 @@ const Files = () => {
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFilePath, setSelectedFilePath] = useState(null);
   const [qrData, setQrData] = useState(null);
   const [fileContent, setFileContent] = useState('');
   const [editingFileName, setEditingFileName] = useState('');
@@ -1673,6 +1715,28 @@ const Files = () => {
     window.open(`${API_URL}/uploads/${encodeURIComponent(filename)}`, '_blank');
   };
 
+  const buildFileUrl = (path) => {
+    if (!path) return '';
+    const base = API_URL?.replace(/\/$/, '') || '';
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${normalizedPath}`;
+  };
+
+  const handleOpenSelectedFile = () => {
+    if (!selectedFile || !selectedFilePath) {
+      message.info('Select a file to open');
+      return;
+    }
+
+    const targetUrl = buildFileUrl(selectedFilePath);
+    if (!targetUrl) {
+      message.error('Unable to determine file location');
+      return;
+    }
+
+    window.open(targetUrl, '_blank');
+  };
+
   const handleDelete = async (filename) => {
     setLoading(true);
     try {
@@ -1706,6 +1770,8 @@ const Files = () => {
       setFileContent(response.data.content);
       setEditingFileName(filename);
       setSelectedFile(filename);
+      const matchedFile = files.find((file) => file.name === filename);
+      setSelectedFilePath(matchedFile?.path || null);
       form.setFieldsValue({
         newName: filename,
         content: response.data.content
@@ -1756,6 +1822,13 @@ const Files = () => {
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleString();
   };
+
+  const fileOptions = files.map(file => ({
+    value: file.name,
+    label: file.name,
+    description: `${formatFileSize(file.size)} · ${formatDate(file.uploadDate)}`,
+    path: file.path,
+  }));
 
   const columns = [
     {
@@ -1849,6 +1922,48 @@ const Files = () => {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>File Browser</h1>
         <Space>
+          <Select
+            showSearch
+            allowClear
+            placeholder="Browse files"
+            style={{ minWidth: 280 }}
+            value={selectedFile}
+            options={fileOptions}
+            optionFilterProp="label"
+            optionRender={(option) => (
+              <Space direction="vertical" size={0}>
+                <Typography.Text strong>{option.data.label}</Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {option.data.description}
+                </Typography.Text>
+              </Space>
+            )}
+            onChange={(value, option) => {
+              setSelectedFile(value || null);
+              setSelectedFilePath(option?.path || null);
+            }}
+            onSelect={(value) => handleEditFile(value)}
+            dropdownRender={(menu) => (
+              <div>
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
+                  <Typography.Text strong>Quick File Browser</Typography.Text>
+                  <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                    Select a file to view or edit its contents
+                  </Typography.Text>
+                </div>
+                {menu}
+              </div>
+            )}
+          />
+          <Tooltip title="Open file from test-files storage">
+            <Button
+              icon={<EyeOutlined />}
+              onClick={handleOpenSelectedFile}
+              disabled={!selectedFilePath}
+            >
+              Open
+            </Button>
+          </Tooltip>
           <Button
             type="primary"
             icon={<UploadOutlined />}
