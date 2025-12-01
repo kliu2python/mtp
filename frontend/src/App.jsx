@@ -276,7 +276,6 @@ const VMs = () => {
       platform: defaultPlatform,
       test_scope: 'smoke',
       environment: 'qa',
-      execution_method: 'docker',
       test_suite: 'FortiToken_Mobile',
       timeout: 3600,
       docker_tag: 'latest'
@@ -284,6 +283,24 @@ const VMs = () => {
     // Fetch APKs for the default platform
     fetchApksForPlatform(defaultPlatform);
     setTestModalOpen(true);
+  };
+
+  const handleNextStep = async () => {
+    try {
+      // Validate fields for current step before proceeding
+      if (currentStep === 0) {
+        // Step 1: Platform & App Version
+        await testForm.validateFields(['platform', appSourceType === 'file' ? 'apk_id' : 'app_version']);
+      } else if (currentStep === 1) {
+        // Step 2: Test Configuration
+        await testForm.validateFields(['test_scope', 'test_suite', 'environment']);
+      }
+      // If validation passes, move to next step
+      setCurrentStep(currentStep + 1);
+    } catch (error) {
+      // Validation failed, show error message
+      message.error('Please fill in all required fields before proceeding');
+    }
   };
 
   const runAutoTest = async () => {
@@ -299,7 +316,7 @@ const VMs = () => {
         test_scope: values.test_scope,
         environment: values.environment,
         platform: values.platform,
-        execution_method: values.execution_method,
+        execution_method: 'docker', // Always use Docker execution
         test_suite: values.test_suite,
         docker_config: {
           registry: 'docker.io',
@@ -1037,7 +1054,6 @@ const VMs = () => {
               <Typography.Text strong>Platform:</Typography.Text> {previousTestConfig.config?.environment?.platform || 'N/A'}<br />
               <Typography.Text strong>Test Suite:</Typography.Text> {previousTestConfig.config?.environment?.test_suite || 'N/A'}<br />
               <Typography.Text strong>Test Markers:</Typography.Text> {previousTestConfig.config?.environment?.test_markers || 'N/A'}<br />
-              <Typography.Text strong>Execution Method:</Typography.Text> {previousTestConfig.config?.environment?.execution_method || 'N/A'}<br />
               <Typography.Text strong>Docker Image:</Typography.Text> {previousTestConfig.config?.environment?.docker_registry || 'docker.io'}/{previousTestConfig.config?.environment?.docker_image || 'N/A'}<br />
               <Typography.Text strong>Previous Status:</Typography.Text> <Tag color={
                 previousTestConfig.status === 'completed' ? 'success' :
@@ -1084,7 +1100,7 @@ const VMs = () => {
             </Button>
           ),
           currentStep < 2 && (
-            <Button key="next" type="primary" onClick={() => setCurrentStep(currentStep + 1)}>
+            <Button key="next" type="primary" onClick={handleNextStep}>
               Next
             </Button>
           ),
@@ -1202,83 +1218,63 @@ const VMs = () => {
               <Alert
                 type="info"
                 message="Step 2: Test Configuration"
-                description="Configure test scope, suite, and environment settings."
+                description="Configure what tests to run and in which environment."
                 showIcon
                 style={{ marginBottom: 16 }}
               />
 
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    name="test_scope"
-                    label="Test Scope"
-                    rules={[{ required: true, message: 'Please select test scope' }]}
-                    tooltip="Select the test scope to run"
-                  >
-                    <Select
-                      options={[
-                        { label: 'Smoke Tests', value: 'smoke' },
-                        { label: 'Regression Tests', value: 'regression' },
-                        { label: 'Integration Tests', value: 'integration' },
-                        { label: 'Critical Tests', value: 'critical' },
-                        { label: 'Release Tests', value: 'release' }
-                      ]}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="test_suite"
-                    label="Test Suite"
-                    rules={[{ required: true, message: 'Please enter test suite name' }]}
-                  >
-                    <Input placeholder="FortiToken_Mobile" />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                name="test_scope"
+                label="Test Scope"
+                rules={[{ required: true, message: 'Please select test scope' }]}
+                tooltip="Select the test scope to run"
+              >
+                <Select
+                  placeholder="Select test scope"
+                  options={[
+                    { label: 'Smoke Tests', value: 'smoke' },
+                    { label: 'Regression Tests', value: 'regression' },
+                    { label: 'Integration Tests', value: 'integration' },
+                    { label: 'Critical Tests', value: 'critical' },
+                    { label: 'Release Tests', value: 'release' }
+                  ]}
+                />
+              </Form.Item>
 
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item
-                    name="environment"
-                    label="Environment"
-                    rules={[{ required: true, message: 'Please select environment' }]}
-                    tooltip="Select the test environment"
-                  >
-                    <Select
-                      options={[
-                        { label: 'QA Environment', value: 'qa' },
-                        { label: 'Release Environment', value: 'release' },
-                        { label: 'Production Environment', value: 'production' }
-                      ]}
-                    />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item
-                    name="execution_method"
-                    label="Execution Method"
-                    rules={[{ required: true }]}
-                  >
-                    <Select
-                      options={[
-                        { label: 'Docker (Recommended)', value: 'docker' },
-                        { label: 'SSH Direct', value: 'ssh' }
-                      ]}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                name="test_suite"
+                label="Test Suite"
+                rules={[{ required: true, message: 'Please enter test suite name' }]}
+                tooltip="Enter the name of the test suite to execute"
+              >
+                <Input placeholder="FortiToken_Mobile" />
+              </Form.Item>
+
+              <Form.Item
+                name="environment"
+                label="Environment"
+                rules={[{ required: true, message: 'Please select environment' }]}
+                tooltip="Select the test environment"
+              >
+                <Select
+                  placeholder="Select environment"
+                  options={[
+                    { label: 'QA Environment', value: 'qa' },
+                    { label: 'Release Environment', value: 'release' },
+                    { label: 'Production Environment', value: 'production' }
+                  ]}
+                />
+              </Form.Item>
             </>
           )}
 
-          {/* Step 3: Docker Tag & Advanced Options */}
+          {/* Step 3: Execution Settings */}
           {currentStep === 2 && (
             <>
               <Alert
                 type="info"
-                message="Step 3: Docker Tag & Advanced Settings"
-                description="Select Docker image tag and configure advanced options."
+                message="Step 3: Execution Settings"
+                description="Configure Docker image tag, timeout, and save as template for future use."
                 showIcon
                 style={{ marginBottom: 16 }}
               />
