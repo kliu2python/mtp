@@ -12,6 +12,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, Query, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.apk_file import ApkFile, AppPlatform
 from app.services.apk_parser import parse_app_metadata, get_platform_from_extension
@@ -20,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# APK storage directory - use test-files directory
-APK_UPLOAD_DIR = Path(os.getenv("APK_UPLOAD_DIR", "/test-files/mobile-apps"))
+# APK storage directory - use same directory as File Browser
+APK_UPLOAD_DIR = Path(os.getenv("APK_UPLOAD_DIR", settings.UPLOAD_DIR))
 APK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
