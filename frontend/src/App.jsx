@@ -193,6 +193,9 @@ const VMs = () => {
   const [testForm] = Form.useForm();
   const [selectedTestVm, setSelectedTestVm] = useState(null);
   const [startingTest, setStartingTest] = useState(false);
+  const [availableApks, setAvailableApks] = useState([]);
+  const [loadingApks, setLoadingApks] = useState(false);
+  const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [runningTests, setRunningTests] = useState({});
   const [testPollingInterval, setTestPollingInterval] = useState(null);
 
@@ -238,20 +241,41 @@ const VMs = () => {
     }
   };
 
+  const fetchApksForPlatform = async (platform) => {
+    setLoadingApks(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/apks/`, {
+        params: { platform: platform }
+      });
+      setAvailableApks(response.data.items || []);
+    } catch (error) {
+      console.error('Failed to fetch APKs:', error);
+      message.error('Failed to load app versions');
+      setAvailableApks([]);
+    } finally {
+      setLoadingApks(false);
+    }
+  };
+
   const openTestModal = (vm) => {
     setSelectedTestVm(vm);
     testForm.resetFields();
     // Set default values based on VM
+    const defaultPlatform = vm.platform === 'FortiGate' ? 'ios' : 'android';
+    setSelectedPlatform(defaultPlatform);
     testForm.setFieldsValue({
-      platform: vm.platform === 'FortiGate' ? 'ios' : 'android',
+      platform: defaultPlatform,
+      test_scope: 'smoke',
+      environment: 'qa',
       execution_method: 'docker',
       test_suite: 'FortiToken_Mobile',
-      test_markers: 'smoke',
       timeout: 3600,
       docker_registry: 'docker.io',
       docker_image: 'pytest-automation',
       docker_tag: 'latest'
     });
+    // Fetch APKs for the default platform
+    fetchApksForPlatform(defaultPlatform);
     setTestModalOpen(true);
   };
 
@@ -263,19 +287,16 @@ const VMs = () => {
       const testConfig = {
         name: `Auto Test - ${selectedTestVm.name}`,
         vm_id: selectedTestVm.id,
-        device_ids: [],
-        test_scripts: [],
-        environment: {
-          vm_ip: selectedTestVm.ip_address,
-          vm_username: selectedTestVm.ssh_username,
-          vm_password: selectedTestVm.ssh_password,
-          platform: values.platform,
-          execution_method: values.execution_method,
-          test_suite: values.test_suite,
-          test_markers: values.test_markers,
-          docker_registry: values.docker_registry,
-          docker_image: values.docker_image,
-          docker_tag: values.docker_tag,
+        apk_id: values.apk_id || null,
+        test_scope: values.test_scope,
+        environment: values.environment,
+        platform: values.platform,
+        execution_method: values.execution_method,
+        test_suite: values.test_suite,
+        docker_config: {
+          registry: values.docker_registry,
+          image: values.docker_image,
+          tag: values.docker_tag
         },
         timeout: values.timeout
       };
@@ -1048,16 +1069,18 @@ const VMs = () => {
         }}
         okText="Start Test"
         confirmLoading={startingTest}
-        width={700}
+        width={800}
       >
         <Alert
           type="info"
-          message="Docker Test Execution"
-          description="This will execute tests using Docker containers, fetching configuration from lab config files."
+          message="New Auto Test Flow"
+          description="Select app version, test scope, environment, and configure test execution."
           showIcon
           style={{ marginBottom: 16 }}
         />
         <Form form={testForm} layout="vertical">
+          {/* Step 1: Platform Selection */}
+          <Typography.Title level={5}>1. Platform Selection</Typography.Title>
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -1066,9 +1089,89 @@ const VMs = () => {
                 rules={[{ required: true, message: 'Please select a platform' }]}
               >
                 <Select
+                  onChange={(value) => {
+                    setSelectedPlatform(value);
+                    fetchApksForPlatform(value);
+                    testForm.setFieldsValue({ apk_id: undefined });
+                  }}
                   options={[
                     { label: 'iOS', value: 'ios' },
                     { label: 'Android', value: 'android' }
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="apk_id"
+                label="App Version (Optional)"
+                tooltip="Select a specific app version to test, or leave empty to skip app installation"
+              >
+                <Select
+                  placeholder="Select app version or leave empty"
+                  allowClear
+                  loading={loadingApks}
+                  disabled={!selectedPlatform}
+                  options={availableApks.map(apk => ({
+                    label: `${apk.display_name} - v${apk.version_name || 'N/A'}`,
+                    value: apk.id
+                  }))}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* Step 2: Test Scope Selection */}
+          <Typography.Title level={5} style={{ marginTop: 16 }}>2. Test Scope</Typography.Title>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="test_scope"
+                label="Test Scope"
+                rules={[{ required: true, message: 'Please select test scope' }]}
+                tooltip="Select the test scope to run"
+              >
+                <Select
+                  options={[
+                    { label: 'Smoke Tests', value: 'smoke' },
+                    { label: 'Regression Tests', value: 'regression' },
+                    { label: 'Integration Tests', value: 'integration' },
+                    { label: 'Critical Tests', value: 'critical' },
+                    { label: 'Release Tests', value: 'release' }
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="test_suite"
+                label="Test Suite"
+                rules={[{ required: true, message: 'Please enter test suite name' }]}
+              >
+                <Input placeholder="FortiToken_Mobile" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          {/* Step 3: Environment Selection */}
+          <Typography.Title level={5} style={{ marginTop: 16 }}>3. Test Environment</Typography.Title>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="environment"
+                label="Environment"
+                rules={[{ required: true, message: 'Please select environment' }]}
+                tooltip="Select the test environment"
+              >
+                <Select
+                  options={[
+                    { label: 'QA Environment', value: 'qa' },
+                    { label: 'Release Environment', value: 'release' },
+                    { label: 'Production Environment', value: 'production' }
                   ]}
                 />
               </Form.Item>
@@ -1089,29 +1192,8 @@ const VMs = () => {
             </Col>
           </Row>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="test_suite"
-                label="Test Suite"
-                rules={[{ required: true, message: 'Please enter test suite name' }]}
-              >
-                <Input placeholder="FortiToken_Mobile" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="test_markers"
-                label="Test Markers"
-                tooltip="Pytest markers to filter tests (e.g., smoke, regression, sanity)"
-                rules={[{ required: true, message: 'Please enter test markers' }]}
-              >
-                <Input placeholder="smoke" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Typography.Title level={5} style={{ marginTop: 16 }}>Docker Configuration</Typography.Title>
+          {/* Step 4: Docker Configuration */}
+          <Typography.Title level={5} style={{ marginTop: 16 }}>4. Docker Configuration</Typography.Title>
 
           <Row gutter={16}>
             <Col span={8}>
