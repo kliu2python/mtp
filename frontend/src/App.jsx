@@ -26,7 +26,10 @@ import {
   Image,
   Tooltip,
   Progress,
-  Empty
+  Empty,
+  Radio,
+  Checkbox,
+  Divider
 } from 'antd';
 import {
   DashboardOutlined,
@@ -198,6 +201,10 @@ const VMs = () => {
   const [selectedPlatform, setSelectedPlatform] = useState(null);
   const [runningTests, setRunningTests] = useState({});
   const [testPollingInterval, setTestPollingInterval] = useState(null);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
+  const [testTemplates, setTestTemplates] = useState([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -260,6 +267,8 @@ const VMs = () => {
   const openTestModal = (vm) => {
     setSelectedTestVm(vm);
     testForm.resetFields();
+    setCurrentStep(0);
+    setAppSourceType('file');
     // Set default values based on VM
     const defaultPlatform = vm.platform === 'FortiGate' ? 'ios' : 'android';
     setSelectedPlatform(defaultPlatform);
@@ -270,8 +279,6 @@ const VMs = () => {
       execution_method: 'docker',
       test_suite: 'FortiToken_Mobile',
       timeout: 3600,
-      docker_registry: 'docker.io',
-      docker_image: 'pytest-automation',
       docker_tag: 'latest'
     });
     // Fetch APKs for the default platform
@@ -287,18 +294,21 @@ const VMs = () => {
       const testConfig = {
         name: `Auto Test - ${selectedTestVm.name}`,
         vm_id: selectedTestVm.id,
-        apk_id: values.apk_id || null,
+        apk_id: appSourceType === 'file' ? values.apk_id : null,
+        app_version: appSourceType === 'version' ? values.app_version : null,
         test_scope: values.test_scope,
         environment: values.environment,
         platform: values.platform,
         execution_method: values.execution_method,
         test_suite: values.test_suite,
         docker_config: {
-          registry: values.docker_registry,
-          image: values.docker_image,
+          registry: 'docker.io',
+          image: 'pytest-automation',
           tag: values.docker_tag
         },
-        timeout: values.timeout
+        timeout: values.timeout,
+        save_as_template: values.save_as_template,
+        template_name: values.template_name
       };
 
       const response = await axios.post(`${API_URL}/api/tests/execute`, testConfig);
@@ -1058,31 +1068,53 @@ const VMs = () => {
         )}
       </Modal>
 
-      {/* Auto Test Configuration Modal */}
+      {/* Auto Test Configuration Modal - Multi-step Wizard */}
       <Modal
-        title={`Configure Auto Test${selectedTestVm ? ` - ${selectedTestVm.name}` : ''}`}
+        title={`Configure Auto Test${selectedTestVm ? ` - ${selectedTestVm.name}` : ''} (Step ${currentStep + 1}/3)`}
         open={testModalOpen}
-        onOk={runAutoTest}
         onCancel={() => {
           setTestModalOpen(false);
           testForm.resetFields();
+          setCurrentStep(0);
         }}
-        okText="Start Test"
-        confirmLoading={startingTest}
+        footer={[
+          currentStep > 0 && (
+            <Button key="back" onClick={() => setCurrentStep(currentStep - 1)}>
+              Previous
+            </Button>
+          ),
+          currentStep < 2 && (
+            <Button key="next" type="primary" onClick={() => setCurrentStep(currentStep + 1)}>
+              Next
+            </Button>
+          ),
+          currentStep === 2 && (
+            <Button key="submit" type="primary" onClick={runAutoTest} loading={startingTest}>
+              Start Test
+            </Button>
+          ),
+          <Button key="cancel" onClick={() => {
+            setTestModalOpen(false);
+            testForm.resetFields();
+            setCurrentStep(0);
+          }}>
+            Cancel
+          </Button>
+        ]}
         width={800}
       >
-        <Alert
-          type="info"
-          message="New Auto Test Flow"
-          description="Select app version, test scope, environment, and configure test execution."
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
         <Form form={testForm} layout="vertical">
-          {/* Step 1: Platform Selection */}
-          <Typography.Title level={5}>1. Platform Selection</Typography.Title>
-          <Row gutter={16}>
-            <Col span={12}>
+          {/* Step 1: Platform & App Version Selection */}
+          {currentStep === 0 && (
+            <>
+              <Alert
+                type="info"
+                message="Step 1: Platform & App Version"
+                description="Select the platform and specify the app version to test."
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
               <Form.Item
                 name="platform"
                 label="Platform"
@@ -1100,156 +1132,219 @@ const VMs = () => {
                   ]}
                 />
               </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="apk_id"
-                label="App Version (Optional)"
-                tooltip="Select a specific app version to test, or leave empty to skip app installation"
-              >
-                <Select
-                  placeholder="Select app version or leave empty"
-                  allowClear
-                  loading={loadingApks}
-                  disabled={!selectedPlatform}
-                  options={availableApks.map(apk => ({
-                    label: `${apk.display_name} - v${apk.version_name || 'N/A'}`,
-                    value: apk.id
-                  }))}
-                  showSearch
-                  filterOption={(input, option) =>
-                    option.label.toLowerCase().includes(input.toLowerCase())
+
+              <Form.Item label="App Version Source">
+                <Radio.Group
+                  value={appSourceType}
+                  onChange={(e) => {
+                    setAppSourceType(e.target.value);
+                    testForm.setFieldsValue({ apk_id: undefined, app_version: undefined });
+                  }}
+                >
+                  <Radio value="file">Select from Files</Radio>
+                  <Radio value="version">Enter Version Number</Radio>
+                </Radio.Group>
+              </Form.Item>
+
+              {appSourceType === 'file' ? (
+                <Form.Item
+                  name="apk_id"
+                  label="App File"
+                  rules={[{ required: true, message: 'Please select an app file' }]}
+                  tooltip="Select a specific app version from uploaded files"
+                >
+                  <Select
+                    placeholder="Select app file"
+                    loading={loadingApks}
+                    disabled={!selectedPlatform}
+                    options={availableApks.map(apk => ({
+                      label: `${apk.display_name} - v${apk.version_name || 'N/A'}`,
+                      value: apk.id
+                    }))}
+                    showSearch
+                    filterOption={(input, option) =>
+                      option.label.toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item
+                  name="app_version"
+                  label="App Version"
+                  rules={[{ required: true, message: 'Please enter app version' }]}
+                  tooltip="Enter build number, 'dev', 'released', or specific version number"
+                >
+                  <Input placeholder="e.g., 1.2.3, build-1234, dev, released" />
+                </Form.Item>
+              )}
+
+              {selectedTestVm && (
+                <Alert
+                  type="info"
+                  message="VM Configuration"
+                  description={
+                    <div>
+                      <Typography.Text strong>VM IP:</Typography.Text> {selectedTestVm.ip_address}<br />
+                      <Typography.Text strong>Platform:</Typography.Text> {selectedTestVm.platform}<br />
+                      <Typography.Text strong>Version:</Typography.Text> {selectedTestVm.version}
+                    </div>
                   }
+                  showIcon
+                  style={{ marginTop: 16 }}
                 />
-              </Form.Item>
-            </Col>
-          </Row>
+              )}
+            </>
+          )}
 
-          {/* Step 2: Test Scope Selection */}
-          <Typography.Title level={5} style={{ marginTop: 16 }}>2. Test Scope</Typography.Title>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="test_scope"
-                label="Test Scope"
-                rules={[{ required: true, message: 'Please select test scope' }]}
-                tooltip="Select the test scope to run"
-              >
-                <Select
-                  options={[
-                    { label: 'Smoke Tests', value: 'smoke' },
-                    { label: 'Regression Tests', value: 'regression' },
-                    { label: 'Integration Tests', value: 'integration' },
-                    { label: 'Critical Tests', value: 'critical' },
-                    { label: 'Release Tests', value: 'release' }
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="test_suite"
-                label="Test Suite"
-                rules={[{ required: true, message: 'Please enter test suite name' }]}
-              >
-                <Input placeholder="FortiToken_Mobile" />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* Step 2: Test Configuration */}
+          {currentStep === 1 && (
+            <>
+              <Alert
+                type="info"
+                message="Step 2: Test Configuration"
+                description="Configure test scope, suite, and environment settings."
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
 
-          {/* Step 3: Environment Selection */}
-          <Typography.Title level={5} style={{ marginTop: 16 }}>3. Test Environment</Typography.Title>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="environment"
-                label="Environment"
-                rules={[{ required: true, message: 'Please select environment' }]}
-                tooltip="Select the test environment"
-              >
-                <Select
-                  options={[
-                    { label: 'QA Environment', value: 'qa' },
-                    { label: 'Release Environment', value: 'release' },
-                    { label: 'Production Environment', value: 'production' }
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                name="execution_method"
-                label="Execution Method"
-                rules={[{ required: true }]}
-              >
-                <Select
-                  options={[
-                    { label: 'Docker (Recommended)', value: 'docker' },
-                    { label: 'SSH Direct', value: 'ssh' }
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-          </Row>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="test_scope"
+                    label="Test Scope"
+                    rules={[{ required: true, message: 'Please select test scope' }]}
+                    tooltip="Select the test scope to run"
+                  >
+                    <Select
+                      options={[
+                        { label: 'Smoke Tests', value: 'smoke' },
+                        { label: 'Regression Tests', value: 'regression' },
+                        { label: 'Integration Tests', value: 'integration' },
+                        { label: 'Critical Tests', value: 'critical' },
+                        { label: 'Release Tests', value: 'release' }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="test_suite"
+                    label="Test Suite"
+                    rules={[{ required: true, message: 'Please enter test suite name' }]}
+                  >
+                    <Input placeholder="FortiToken_Mobile" />
+                  </Form.Item>
+                </Col>
+              </Row>
 
-          {/* Step 4: Docker Configuration */}
-          <Typography.Title level={5} style={{ marginTop: 16 }}>4. Docker Configuration</Typography.Title>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="environment"
+                    label="Environment"
+                    rules={[{ required: true, message: 'Please select environment' }]}
+                    tooltip="Select the test environment"
+                  >
+                    <Select
+                      options={[
+                        { label: 'QA Environment', value: 'qa' },
+                        { label: 'Release Environment', value: 'release' },
+                        { label: 'Production Environment', value: 'production' }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="execution_method"
+                    label="Execution Method"
+                    rules={[{ required: true }]}
+                  >
+                    <Select
+                      options={[
+                        { label: 'Docker (Recommended)', value: 'docker' },
+                        { label: 'SSH Direct', value: 'ssh' }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </>
+          )}
 
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                name="docker_registry"
-                label="Docker Registry"
-                rules={[{ required: true }]}
-              >
-                <Input placeholder="docker.io" />
-              </Form.Item>
-            </Col>
-            <Col span={10}>
-              <Form.Item
-                name="docker_image"
-                label="Docker Image"
-                rules={[{ required: true }]}
-              >
-                <Input placeholder="pytest-automation" />
-              </Form.Item>
-            </Col>
-            <Col span={6}>
-              <Form.Item
-                name="docker_tag"
-                label="Tag"
-                rules={[{ required: true }]}
-              >
-                <Input placeholder="latest" />
-              </Form.Item>
-            </Col>
-          </Row>
+          {/* Step 3: Docker Tag & Advanced Options */}
+          {currentStep === 2 && (
+            <>
+              <Alert
+                type="info"
+                message="Step 3: Docker Tag & Advanced Settings"
+                description="Select Docker image tag and configure advanced options."
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
 
-          <Form.Item
-            name="timeout"
-            label="Timeout (seconds)"
-            rules={[{ required: true }]}
-          >
-            <InputNumber min={300} max={7200} style={{ width: '100%' }} />
-          </Form.Item>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="docker_tag"
+                    label="Docker Tag"
+                    rules={[{ required: true, message: 'Please select a docker tag' }]}
+                    tooltip="Select the Docker image tag to use"
+                  >
+                    <Select
+                      options={[
+                        { label: 'Latest', value: 'latest' },
+                        { label: 'Stable', value: 'stable' }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="timeout"
+                    label="Timeout (seconds)"
+                    rules={[{ required: true }]}
+                  >
+                    <InputNumber min={300} max={7200} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider>Save as Template (Optional)</Divider>
+
+              <Form.Item
+                name="save_as_template"
+                valuePropName="checked"
+              >
+                <Checkbox>Save this configuration as a template for future use</Checkbox>
+              </Form.Item>
+
+              <Form.Item
+                noStyle
+                shouldUpdate={(prevValues, currentValues) => prevValues.save_as_template !== currentValues.save_as_template}
+              >
+                {({ getFieldValue }) =>
+                  getFieldValue('save_as_template') ? (
+                    <Form.Item
+                      name="template_name"
+                      label="Template Name"
+                      rules={[{ required: true, message: 'Please enter template name' }]}
+                    >
+                      <Input placeholder="e.g., iOS Smoke Test" />
+                    </Form.Item>
+                  ) : null
+                }
+              </Form.Item>
+
+              <Alert
+                type="success"
+                message="Ready to Start"
+                description="Review your configuration and click 'Start Test' to begin."
+                showIcon
+              />
+            </>
+          )}
         </Form>
-
-        <Alert
-          type="warning"
-          message="VM Configuration"
-          description={
-            selectedTestVm ? (
-              <div>
-                <Typography.Text strong>VM IP:</Typography.Text> {selectedTestVm.ip_address}<br />
-                <Typography.Text strong>Username:</Typography.Text> {selectedTestVm.ssh_username}<br />
-                <Typography.Text strong>Platform:</Typography.Text> {selectedTestVm.platform}<br />
-                <Typography.Text strong>Version:</Typography.Text> {selectedTestVm.version}
-              </div>
-            ) : 'No VM selected'
-          }
-          showIcon
-          style={{ marginTop: 16 }}
-        />
       </Modal>
 
       <Modal

@@ -65,6 +65,8 @@ class TestExecutionRequest(BaseModel):
     docker_config: Optional[DockerConfig] = Field(None, description="Docker configuration (required for docker execution)")
     timeout: int = Field(default=3600, description="Test timeout in seconds")
     additional_params: Optional[Dict[str, Any]] = Field(None, description="Additional test parameters")
+    save_as_template: Optional[bool] = Field(False, description="Save this configuration as a template")
+    template_name: Optional[str] = Field(None, description="Template name if save_as_template is True")
 
 
 class TestExecutionResponse(BaseModel):
@@ -107,3 +109,24 @@ class TestRerunRequest(BaseModel):
     task_id: str = Field(..., description="Original task ID to rerun")
     docker_tag: Optional[str] = Field(None, description="Override docker tag (optional)")
     timeout: Optional[int] = Field(None, description="Override timeout (optional)")
+
+
+class TestTemplate(BaseModel):
+    """Schema for test configuration template"""
+    id: Optional[int] = None
+    name: str = Field(..., description="Template name")
+    platform: Platform = Field(..., description="Platform (ios/android)")
+    test_scope: TestScope = Field(..., description="Test scope")
+    environment: TestEnvironment = Field(..., description="Test environment")
+    execution_method: ExecutionMethod = Field(default=ExecutionMethod.DOCKER, description="Execution method")
+    test_suite: str = Field(default="FortiToken_Mobile", description="Test suite name")
+    docker_tag: str = Field(default="latest", description="Docker image tag")
+    timeout: int = Field(default=3600, description="Test timeout in seconds")
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class TestTemplateListResponse(BaseModel):
+    """Schema for list of test templates"""
+    templates: List[TestTemplate] = []
+    total: int = 0
