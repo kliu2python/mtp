@@ -22,19 +22,21 @@ from app.models.user import User
 def _ensure_optional_columns():
     """Make sure optional columns added after initial deployment exist."""
     inspector = inspect(engine)
-    existing_columns = {col["name"] for col in inspector.get_columns("virtual_machines")}
 
-    statements = []
-    if "ssh_username" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
-    if "ssh_password" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
-    if "provider" not in existing_columns:
-        statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
+    # Check virtual_machines table
+    vm_columns = {col["name"] for col in inspector.get_columns("virtual_machines")}
 
-    if statements:
+    vm_statements = []
+    if "ssh_username" not in vm_columns:
+        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
+    if "ssh_password" not in vm_columns:
+        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
+    if "provider" not in vm_columns:
+        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
+
+    if vm_statements:
         with engine.begin() as connection:
-            for statement in statements:
+            for statement in vm_statements:
                 connection.execute(statement)
 
     # Migrate existing lowercase provider values to uppercase
@@ -46,6 +48,24 @@ def _ensure_optional_columns():
         connection.execute(text(
             "UPDATE virtual_machines SET provider = 'OPENSTACK' WHERE provider = 'openstack'"
         ))
+
+    # Check test_records table for new columns
+    test_records_columns = {col["name"] for col in inspector.get_columns("test_records")}
+
+    test_statements = []
+    if "apk_file_id" not in test_records_columns:
+        test_statements.append(text("ALTER TABLE test_records ADD COLUMN apk_file_id UUID NULL"))
+    if "jenkins_job_name" not in test_records_columns:
+        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_job_name VARCHAR NULL"))
+    if "jenkins_build_number" not in test_records_columns:
+        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_build_number INTEGER NULL"))
+    if "jenkins_build_url" not in test_records_columns:
+        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_build_url VARCHAR NULL"))
+
+    if test_statements:
+        with engine.begin() as connection:
+            for statement in test_statements:
+                connection.execute(statement)
 
 
 @asynccontextmanager
