@@ -590,6 +590,14 @@ const VMs = () => {
 
   const appFileOptions = availableApks.map((apk) => ({
     value: apk.name,
+    label: apk.name,
+    searchText: [
+      apk.name,
+      apk.version_name ? `v${apk.version_name}` : null,
+      apk.file_path,
+    ]
+      .filter(Boolean)
+      .join(' ')?.toLowerCase(),
     apk,
   }));
 
@@ -1181,30 +1189,27 @@ const VMs = () => {
                     disabled={!selectedPlatform}
                     options={appFileOptions}
                     optionRender={(option) => {
-                      const apk = option.data.apk;
+                      const apk = option?.data?.apk || option?.apk;
                       return (
                         <Space direction="vertical" size={0}>
                           <Typography.Text strong>{option.value}</Typography.Text>
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
+                            {[apk?.version_name ? `v${apk.version_name}` : null, apk?.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk?.file_size)}`]
                               .filter(Boolean)
                               .join(' • ')}
                           </Typography.Text>
                           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            Uploaded: {formatApkDate(apk.created_at)}
+                            Uploaded: {formatApkDate(apk?.created_at)}
                           </Typography.Text>
                         </Space>
                       );
                     }}
                     showSearch
+                    optionFilterProp="searchText"
                     filterOption={(input, option) => {
                       const searchText = input.toLowerCase();
-                      const apk = option?.data?.apk || {};
-                      return (
-                        (option?.label || '').toString().toLowerCase().includes(searchText) ||
-                        (apk.version_name || '').toLowerCase().includes(searchText) ||
-                        (apk.file_path || '').toLowerCase().includes(searchText)
-                      );
+                      const optionText = (option?.searchText || '').toLowerCase();
+                      return optionText.includes(searchText);
                     }}
                   />
                 </Form.Item>
