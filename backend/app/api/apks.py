@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# APK storage directory
-APK_UPLOAD_DIR = Path(os.getenv("APK_UPLOAD_DIR", "/home/user/mtp/backend/app/uploads/apks"))
+# APK storage directory - use test-files directory
+APK_UPLOAD_DIR = Path(os.getenv("APK_UPLOAD_DIR", "/test-files/mobile-apps"))
 APK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 

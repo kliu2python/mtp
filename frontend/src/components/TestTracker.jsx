@@ -65,7 +65,7 @@ const TestTracker = () => {
   const fetchApks = async () => {
     try {
       const response = await axios.get(`${API_URL}/api/apks/`);
-      setApks(response.data.items || []);
+      setApks(response.data.apk_files || []);
     } catch (error) {
       message.error('Failed to fetch APK/IPA files');
     }
