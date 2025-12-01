@@ -255,7 +255,10 @@ const VMs = () => {
       const response = await axios.get(`${API_URL}/api/apks/`, {
         params: { platform: platform }
       });
-      setAvailableApks(response.data.items || []);
+
+      // Backend returns the files under `apk_files` (same resource as File Browser)
+      const apkFiles = response.data?.apk_files || response.data?.items || [];
+      setAvailableApks(apkFiles);
     } catch (error) {
       console.error('Failed to fetch APKs:', error);
       message.error('Failed to load app versions');
@@ -767,6 +770,25 @@ const VMs = () => {
     }
   };
 
+  const formatApkSize = (bytes) => {
+    if (!bytes || bytes <= 0) return 'Unknown size';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  const formatApkDate = (dateString) => {
+    if (!dateString) return 'Unknown upload time';
+    return new Date(dateString).toLocaleString();
+  };
+
+  const appFileOptions = availableApks.map((apk) => ({
+    value: apk.id,
+    label: apk.display_name || apk.filename,
+    apk,
+  }));
+
   const columns = [
     {
       title: 'Name',
@@ -1174,14 +1196,33 @@ const VMs = () => {
                     placeholder="Select app file"
                     loading={loadingApks}
                     disabled={!selectedPlatform}
-                    options={availableApks.map(apk => ({
-                      label: `${apk.display_name} - v${apk.version_name || 'N/A'}`,
-                      value: apk.id
-                    }))}
+                    options={appFileOptions}
+                    optionRender={(option) => {
+                      const apk = option.data.apk;
+                      return (
+                        <Space direction="vertical" size={0}>
+                          <Typography.Text strong>{apk.display_name || apk.filename || option.data.label}</Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            {[apk.version_name ? `v${apk.version_name}` : null, apk.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk.file_size)}`]
+                              .filter(Boolean)
+                              .join(' • ')}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                            Uploaded: {formatApkDate(apk.created_at)}
+                          </Typography.Text>
+                        </Space>
+                      );
+                    }}
                     showSearch
-                    filterOption={(input, option) =>
-                      option.label.toLowerCase().includes(input.toLowerCase())
-                    }
+                    filterOption={(input, option) => {
+                      const searchText = input.toLowerCase();
+                      const apk = option?.data?.apk || {};
+                      return (
+                        (option?.label || '').toString().toLowerCase().includes(searchText) ||
+                        (apk.version_name || '').toLowerCase().includes(searchText) ||
+                        (apk.file_path || '').toLowerCase().includes(searchText)
+                      );
+                    }}
                   />
                 </Form.Item>
               ) : (
