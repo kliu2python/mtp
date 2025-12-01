@@ -125,12 +125,12 @@ const VMs = () => {
   const fetchApksForPlatform = async (platform) => {
     setLoadingApks(true);
     try {
-      const response = await axios.get(`${API_URL}/api/apks/`, {
-        params: { platform: platform }
-      });
+      const response = await axios.get(`${API_URL}/api/files/`, {});
+      console.log(response)
 
       // Backend returns the files under `apk_files` (same resource as File Browser)
       const apkFiles = response.data?.apk_files || response.data?.items || [];
+      console.log(apkFiles)
       setAvailableApks(apkFiles);
     } catch (error) {
       console.error('Failed to fetch APKs:', error);
