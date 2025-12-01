@@ -29,3 +29,6 @@ backend/.venv/
 certs/*.key
 certs/*.crt
 certs/*.pem
+
+
+test-files/**

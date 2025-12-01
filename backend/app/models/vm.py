@@ -94,9 +94,10 @@ class VirtualMachine(Base):
 
 class TestRecord(Base):
     __tablename__ = "test_records"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     vm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    apk_file_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # Link to APK/IPA file
     test_suite = Column(String, nullable=False)
     test_case = Column(String, nullable=False)
     status = Column(String, nullable=False)
@@ -104,6 +105,11 @@ class TestRecord(Base):
     error_message = Column(String, nullable=True)
     screenshot_path = Column(String, nullable=True)
     log_path = Column(String, nullable=True)
+
+    # Jenkins integration
+    jenkins_job_name = Column(String, nullable=True)
+    jenkins_build_number = Column(Integer, nullable=True)
+    jenkins_build_url = Column(String, nullable=True)
 
     # FIXED HERE:
     meta = Column("metadata", JSON, default=dict)
@@ -114,6 +120,7 @@ class TestRecord(Base):
         return {
             "id": str(self.id),
             "vm_id": str(self.vm_id),
+            "apk_file_id": str(self.apk_file_id) if self.apk_file_id else None,
             "test_suite": self.test_suite,
             "test_case": self.test_case,
             "status": self.status,
@@ -121,6 +128,9 @@ class TestRecord(Base):
             "error_message": self.error_message,
             "screenshot_path": self.screenshot_path,
             "log_path": self.log_path,
+            "jenkins_job_name": self.jenkins_job_name,
+            "jenkins_build_number": self.jenkins_build_number,
+            "jenkins_build_url": self.jenkins_build_url,
             "metadata": self.meta,          # return original key
             "executed_at": self.executed_at.isoformat() if self.executed_at else None
         }

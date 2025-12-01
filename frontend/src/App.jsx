@@ -61,6 +61,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import ApkBrowser from './components/ApkBrowser';
+import TestTracker from './components/TestTracker';
 
 const { Content, Sider } = Layout;
 
@@ -1975,6 +1976,7 @@ function App() {
     { key: '/vms', icon: <CloudServerOutlined />, label: 'Virtual Machines', path: '/vms' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
+    { key: '/test-tracker', icon: <BarChartOutlined />, label: 'Test Tracker', path: '/test-tracker' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
   ];
 
@@ -2000,6 +2002,7 @@ function App() {
               <Route path="/vms" element={<VMs />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/apks" element={<ApkBrowser />} />
+              <Route path="/test-tracker" element={<TestTracker />} />
               <Route path="/files" element={<Files />} />
             </Routes>
           </Content>
