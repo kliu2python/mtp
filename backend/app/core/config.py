@@ -57,8 +57,8 @@ class Settings(BaseSettings):
 
     # Jenkins
     JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080")
-    JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "")
-    JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "")
+    JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "taas-api")
+    JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "118eed0315e68f05695c4db245f358f2d0")
 
     # Monitoring
     PROMETHEUS_PORT: int = 9090

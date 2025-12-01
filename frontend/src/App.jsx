@@ -1793,68 +1793,6 @@ const Files = () => {
   );
 };
 
-// Tests Component
-const Tests = () => {
-  const [coverage, setCoverage] = useState(null);
-
-  useEffect(() => {
-    fetchCoverage();
-  }, []);
-
-  const fetchCoverage = async () => {
-    try {
-      const response = await axios.get(`${API_URL}/api/tests/coverage`);
-      setCoverage(response.data);
-    } catch (error) {
-      message.error('Failed to fetch coverage data');
-    }
-  };
-
-  return (
-    <div>
-      <h1>Test Management</h1>
-      <Row gutter={16}>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Manual Test Cases"
-              value={coverage?.total_manual_cases || 0}
-            />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Automated Test Cases"
-              value={coverage?.total_auto_cases || 0}
-            />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card>
-            <Statistic
-              title="Coverage"
-              value={coverage?.coverage_percentage || 0}
-              suffix="%"
-              valueStyle={{ color: '#3f8600' }}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      {coverage?.by_platform && (
-        <Card title="Coverage by Platform" style={{ marginTop: 24 }}>
-          {Object.entries(coverage.by_platform).map(([platform, percent]) => (
-            <div key={platform}>
-              <strong>{platform}:</strong> {percent}%
-            </div>
-          ))}
-        </Card>
-      )}
-    </div>
-  );
-};
-
 // Main App Component
 function App() {
   const [collapsed, setCollapsed] = useState(false);
@@ -1864,7 +1802,6 @@ function App() {
     { key: '/vms', icon: <CloudServerOutlined />, label: 'Virtual Machines', path: '/vms' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
-    { key: '/tests', icon: <ExperimentOutlined />, label: 'Tests', path: '/tests' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
   ];
 
@@ -1890,7 +1827,6 @@ function App() {
               <Route path="/vms" element={<VMs />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/apks" element={<ApkBrowser />} />
-              <Route path="/tests" element={<Tests />} />
               <Route path="/files" element={<Files />} />
             </Routes>
           </Content>
