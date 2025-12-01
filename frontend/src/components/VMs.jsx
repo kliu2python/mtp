@@ -858,7 +858,11 @@ const VMs = () => {
       const response = await axios.get(`${API_URL}/api/tests/templates`);
       setTestTemplates(response.data || []);
     } catch (error) {
-      message.error('Failed to load test templates');
+      if (error.response?.status === 404) {
+        setTestTemplates([]);
+      } else {
+        message.error('Failed to load test templates');
+      }
     } finally {
       setLoadingTemplates(false);
     }
