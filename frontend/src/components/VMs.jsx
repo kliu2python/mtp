@@ -421,6 +421,12 @@ const VMs = () => {
   useEffect(() => {
     if (!sshModalOpen || !selectedVm) return;
 
+    const terminalContainer = sshTerminalRef.current;
+    if (!terminalContainer) {
+      setSshError('Unable to initialize SSH terminal. Please try reopening the modal.');
+      return undefined;
+    }
+
     const terminal = new Terminal({
       cursorBlink: true,
       rows: 25,
@@ -437,7 +443,7 @@ const VMs = () => {
     sshFitAddonRef.current = fitAddon;
 
     terminal.loadAddon(fitAddon);
-    terminal.open(sshTerminalRef.current);
+    terminal.open(terminalContainer);
     fitAddon.fit();
 
     const socketUrl = `${API_URL.replace('http', 'ws')}/api/vms/${selectedVm.id}/ssh/ws`;
