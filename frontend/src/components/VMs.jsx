@@ -483,13 +483,20 @@ const VMs = () => {
     };
 
     socket.onmessage = (event) => {
+      const message = event.data;
+
       try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'output') {
+        const data = JSON.parse(message);
+        if (data.type === 'output' && typeof data.data === 'string') {
           terminal.write(data.data);
+          return;
         }
       } catch (error) {
-        console.error('Error parsing SSH message:', error);
+        console.warn('Received non-JSON SSH message, writing raw text.', error);
+      }
+
+      if (typeof message === 'string') {
+        terminal.write(message);
       }
     };
 
