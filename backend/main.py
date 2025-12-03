@@ -31,6 +31,10 @@ def _ensure_optional_columns():
         vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
     if "ssh_password" not in vm_columns:
         vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
+    if "web_username" not in vm_columns:
+        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN web_username VARCHAR NULL"))
+    if "web_password" not in vm_columns:
+        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN web_password VARCHAR NULL"))
     if "provider" not in vm_columns:
         vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
 
