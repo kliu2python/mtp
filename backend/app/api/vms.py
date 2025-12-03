@@ -261,7 +261,7 @@ async def get_vm_metrics(vm_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to get metrics: {str(e)}")
 
 
-@router.websocket("/{vm_id}/ssh")
+@router.websocket("/{vm_id}/ssh/ws")
 async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(get_db)):
     """Proxy SSH session for the given VM over WebSocket."""
     await websocket.accept()
