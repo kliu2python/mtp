@@ -42,8 +42,6 @@ class VirtualMachine(Base):
     ip_address = Column(String, nullable=True)
     ssh_username = Column(String, nullable=True)
     ssh_password = Column(String, nullable=True)
-    web_username = Column(String, nullable=True)
-    web_password = Column(String, nullable=True)
     provider = Column(SQLEnum(VMProvider), nullable=True)
     status = Column(SQLEnum(VMStatus), default=VMStatus.STOPPED)
     docker_container_id = Column(String, nullable=True)
@@ -76,8 +74,6 @@ class VirtualMachine(Base):
             "ip_address": self.ip_address,
             "ssh_username": self.ssh_username,
             "ssh_password": self.ssh_password,
-            "web_username": self.web_username,
-            "web_password": self.web_password,
             "provider": self.provider.value if self.provider else None,
             "status": self.status.value if self.status else None,
             "docker_container_id": self.docker_container_id,

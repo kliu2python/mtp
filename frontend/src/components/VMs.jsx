@@ -29,11 +29,9 @@ import {
 import {
   BarChartOutlined,
   CodeOutlined,
-  CopyOutlined,
   DeleteOutlined,
   ExperimentOutlined,
   FileTextOutlined,
-  GlobalOutlined,
   PlusOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
@@ -88,10 +86,6 @@ const VMs = () => {
   const [runPreviousForm] = Form.useForm();
   const [previousTestConfig, setPreviousTestConfig] = useState(null);
   const [loadingPreviousConfig, setLoadingPreviousConfig] = useState(false);
-
-  // Web Console states
-  const [webConsoleModalOpen, setWebConsoleModalOpen] = useState(false);
-  const [webConsoleVm, setWebConsoleVm] = useState(null);
 
   useEffect(() => {
     fetchVMs();
@@ -418,11 +412,6 @@ const VMs = () => {
     setSshError(null);
   };
 
-  const openWebConsoleModal = (vm) => {
-    setWebConsoleVm(vm);
-    setWebConsoleModalOpen(true);
-  };
-
   const closeActiveSocket = () => {
     if (sshSocketRef.current) {
       sshSocketRef.current.close();
@@ -722,16 +711,6 @@ const VMs = () => {
           >
             SSH
           </Button>
-          <Tooltip title="Access VM web console (HTTPS)">
-            <Button
-              size="small"
-              icon={<GlobalOutlined />}
-              onClick={() => openWebConsoleModal(record)}
-              disabled={!record.ip_address}
-            >
-              Web Console
-            </Button>
-          </Tooltip>
           <Button
             size="small"
             icon={<FileTextOutlined />}
@@ -1048,21 +1027,6 @@ const VMs = () => {
           </Form.Item>
           <Form.Item label="SSH Password" name="ssh_password">
             <Input.Password />
-          </Form.Item>
-          <Divider>Web Console Credentials</Divider>
-          <Form.Item
-            label="Web Username"
-            name="web_username"
-            tooltip="Username for web console login (defaults to SSH username if not set)"
-          >
-            <Input placeholder="admin" />
-          </Form.Item>
-          <Form.Item
-            label="Web Password"
-            name="web_password"
-            tooltip="Password for web console login (defaults to SSH password if not set)"
-          >
-            <Input.Password placeholder="Enter web console password" />
           </Form.Item>
         </Form>
       </Modal>
@@ -1482,149 +1446,6 @@ const VMs = () => {
           </>
         ) : (
           <Empty description="No previous test configuration available" />
-        )}
-      </Modal>
-
-      <Modal
-        title={`Web Console - ${webConsoleVm?.name}`}
-        open={webConsoleModalOpen}
-        onCancel={() => {
-          setWebConsoleModalOpen(false);
-          setWebConsoleVm(null);
-        }}
-        footer={null}
-        width={1400}
-        bodyStyle={{ height: '80vh', padding: 0 }}
-        destroyOnClose
-      >
-        {webConsoleVm && (
-          <div style={{ display: 'flex', height: '100%' }}>
-            <div style={{ flex: 1, height: '100%' }}>
-              <iframe
-                src={`https://${webConsoleVm.ip_address}`}
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  border: 'none',
-                }}
-                title="VM Web Console"
-              />
-            </div>
-            <div
-              style={{
-                width: 300,
-                borderLeft: '1px solid #d9d9d9',
-                padding: 16,
-                backgroundColor: '#fafafa',
-                overflowY: 'auto',
-              }}
-            >
-              <Typography.Title level={5}>Connection Details</Typography.Title>
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
-                <div>
-                  <Typography.Text strong>URL:</Typography.Text>
-                  <div
-                    style={{
-                      marginTop: 4,
-                      padding: '8px 12px',
-                      background: '#fff',
-                      border: '1px solid #d9d9d9',
-                      borderRadius: 4,
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {`https://${webConsoleVm.ip_address}`}
-                  </div>
-                </div>
-
-                <div>
-                  <Typography.Text strong>Username:</Typography.Text>
-                  <div style={{ marginTop: 4 }}>
-                    <Input.Group compact>
-                      <Input
-                        value={webConsoleVm.web_username || webConsoleVm.ssh_username || 'admin'}
-                        readOnly
-                        style={{ width: 'calc(100% - 32px)' }}
-                      />
-                      <Tooltip title="Copy username">
-                        <Button
-                          icon={<CopyOutlined />}
-                          onClick={() => {
-                            navigator.clipboard.writeText(
-                              webConsoleVm.web_username || webConsoleVm.ssh_username || 'admin'
-                            );
-                            message.success('Username copied to clipboard');
-                          }}
-                        />
-                      </Tooltip>
-                    </Input.Group>
-                  </div>
-                </div>
-
-                <div>
-                  <Typography.Text strong>Password:</Typography.Text>
-                  <div style={{ marginTop: 4 }}>
-                    <Input.Group compact>
-                      <Input.Password
-                        value={webConsoleVm.web_password || webConsoleVm.ssh_password || ''}
-                        readOnly
-                        style={{ width: 'calc(100% - 32px)' }}
-                      />
-                      <Tooltip title="Copy password">
-                        <Button
-                          icon={<CopyOutlined />}
-                          onClick={() => {
-                            const password = webConsoleVm.web_password || webConsoleVm.ssh_password || '';
-                            if (password) {
-                              navigator.clipboard.writeText(password);
-                              message.success('Password copied to clipboard');
-                            } else {
-                              message.warning('No password configured');
-                            }
-                          }}
-                        />
-                      </Tooltip>
-                    </Input.Group>
-                  </div>
-                </div>
-
-                <Alert
-                  type="info"
-                  message="Login Instructions"
-                  description={
-                    <>
-                      <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                        <li>Click the copy buttons to copy credentials</li>
-                        <li>Paste username and password in the login form</li>
-                        <li>
-                          If the iframe doesn't load, you may need to accept the SSL certificate
-                          in a new tab first
-                        </li>
-                      </ol>
-                    </>
-                  }
-                  showIcon
-                />
-
-                <Alert
-                  type="warning"
-                  message="SSL Certificate"
-                  description="FortiGate/FAC devices typically use self-signed certificates. Your browser may show security warnings - this is normal for internal VMs."
-                  showIcon
-                />
-
-                <Button
-                  type="primary"
-                  block
-                  onClick={() => {
-                    window.open(`https://${webConsoleVm.ip_address}`, '_blank');
-                  }}
-                >
-                  Open in New Tab
-                </Button>
-              </Space>
-            </div>
-          </div>
         )}
       </Modal>
     </div>
