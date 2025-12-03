@@ -51,6 +51,7 @@ const VMs = () => {
   const [editingVm, setEditingVm] = useState(null);
   const [selectedVm, setSelectedVm] = useState(null);
   const [sshModalOpen, setSshModalOpen] = useState(false);
+  const [sshModalReady, setSshModalReady] = useState(false);
   const [logsDrawerOpen, setLogsDrawerOpen] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -419,7 +420,7 @@ const VMs = () => {
   };
 
   useEffect(() => {
-    if (!sshModalOpen || !selectedVm) return;
+    if (!sshModalOpen || !sshModalReady || !selectedVm) return;
 
     const terminalContainer = sshTerminalRef.current;
     if (!terminalContainer) {
@@ -519,7 +520,7 @@ const VMs = () => {
         sshTerminalRef.current.innerHTML = '';
       }
     };
-  }, [sshModalOpen, selectedVm, hasSshDetails]);
+  }, [sshModalOpen, sshModalReady, selectedVm, hasSshDetails]);
 
   const openLogsDrawer = async (vm) => {
     setSelectedVm(vm);
@@ -1024,7 +1025,9 @@ const VMs = () => {
           setSshModalOpen(false);
           setSelectedVm(null);
           setSshError(null);
+          setSshModalReady(false);
         }}
+        afterOpenChange={(open) => setSshModalReady(open)}
         footer={null}
         width={800}
         bodyStyle={{ height: 500, overflow: 'hidden' }}
