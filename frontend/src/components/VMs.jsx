@@ -31,6 +31,7 @@ import {
   CodeOutlined,
   DeleteOutlined,
   ExperimentOutlined,
+  GlobalOutlined,
   FileTextOutlined,
   PlusOutlined,
   ReloadOutlined
@@ -58,6 +59,9 @@ const VMs = () => {
   const [metricsDrawerOpen, setMetricsDrawerOpen] = useState(false);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metrics, setMetrics] = useState(null);
+  const [webDrawerOpen, setWebDrawerOpen] = useState(false);
+  const [webLoadError, setWebLoadError] = useState(null);
+  const [webAccessUrl, setWebAccessUrl] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [sshConnecting, setSshConnecting] = useState(false);
   const [sshError, setSshError] = useState(null);
@@ -379,6 +383,9 @@ const VMs = () => {
       ip_address: vm.ip_address,
       ssh_username: vm.ssh_username,
       ssh_password: vm.ssh_password,
+      web_url: vm.web_url,
+      web_username: vm.web_username,
+      web_password: vm.web_password,
     });
     setVmModalOpen(true);
   };
@@ -405,6 +412,19 @@ const VMs = () => {
   };
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
+
+  const openWebDrawer = (vm) => {
+    const resolvedUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
+    if (!resolvedUrl) {
+      message.warning('No web access URL configured for this VM');
+      return;
+    }
+
+    setSelectedVm(vm);
+    setWebAccessUrl(resolvedUrl);
+    setWebLoadError(null);
+    setWebDrawerOpen(true);
+  };
 
   const openSshModal = (vm) => {
     setSelectedVm(vm);
@@ -702,6 +722,15 @@ const VMs = () => {
               onClick={() => openRunPreviousModal(record)}
             >
               Run Previous
+            </Button>
+          </Tooltip>
+          <Tooltip title="Open HTTP-based web access for this VM">
+            <Button
+              size="small"
+              icon={<GlobalOutlined />}
+              onClick={() => openWebDrawer(record)}
+            >
+              Web Access
             </Button>
           </Tooltip>
           <Button
@@ -1022,6 +1051,15 @@ const VMs = () => {
           <Form.Item label="IP Address" name="ip_address">
             <Input />
           </Form.Item>
+          <Form.Item label="Web Access URL" name="web_url" tooltip="Optional HTTP/HTTPS URL for the VM's management UI">
+            <Input placeholder="e.g. https://10.0.0.5" />
+          </Form.Item>
+          <Form.Item label="Web Username" name="web_username">
+            <Input placeholder="Optional username hint for the web UI" />
+          </Form.Item>
+          <Form.Item label="Web Password" name="web_password">
+            <Input.Password placeholder="Optional password hint for the web UI" />
+          </Form.Item>
           <Form.Item label="SSH Username" name="ssh_username">
             <Input />
           </Form.Item>
@@ -1115,6 +1153,69 @@ const VMs = () => {
           </Typography.Paragraph>
         ) : (
           <Typography.Text type="secondary">No metrics available.</Typography.Text>
+        )}
+      </Drawer>
+
+      <Drawer
+        title={`Web Access - ${selectedVm?.name || ''}`}
+        placement="right"
+        width={900}
+        onClose={() => {
+          setWebDrawerOpen(false);
+          setSelectedVm(null);
+          setWebAccessUrl('');
+          setWebLoadError(null);
+        }}
+        open={webDrawerOpen}
+        extra={
+          webAccessUrl ? (
+            <Button
+              type="primary"
+              size="small"
+              onClick={() => window.open(webAccessUrl, '_blank', 'noopener,noreferrer')}
+            >
+              Open in New Tab
+            </Button>
+          ) : null
+        }
+      >
+        {!webAccessUrl ? (
+          <Empty description="No web access URL configured" />
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <Typography.Text type="secondary">{webAccessUrl}</Typography.Text>
+            {(selectedVm?.web_username || selectedVm?.web_password) && (
+              <Alert
+                type="info"
+                showIcon
+                message="Credentials hint"
+                description={
+                  <div>
+                    {selectedVm?.web_username && (
+                      <div>
+                        <strong>Username:</strong> {selectedVm.web_username}
+                      </div>
+                    )}
+                    {selectedVm?.web_password && (
+                      <div>
+                        <strong>Password:</strong> {selectedVm.web_password}
+                      </div>
+                    )}
+                  </div>
+                }
+              />
+            )}
+            {webLoadError && <Alert type="error" showIcon message={webLoadError} />}
+            <div style={{ height: 600, border: '1px solid #f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+              <iframe
+                title="VM Web Access"
+                src={webAccessUrl}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                onLoad={() => setWebLoadError(null)}
+                onError={() => setWebLoadError('Unable to load the web access page. Check the URL or frame permissions.')}
+              />
+            </div>
+          </Space>
         )}
       </Drawer>
 
