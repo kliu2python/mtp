@@ -413,8 +413,20 @@ const VMs = () => {
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
 
+  const normalizeToHttp = (url) => {
+    try {
+      const parsed = new URL(url);
+      parsed.protocol = 'http:';
+      return parsed.toString();
+    } catch (error) {
+      // If the URL constructor fails, fall back to the raw value.
+      return url;
+    }
+  };
+
   const openWebDrawer = (vm) => {
-    const resolvedUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
+    const baseUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
+    const resolvedUrl = baseUrl ? normalizeToHttp(baseUrl) : null;
     if (!resolvedUrl) {
       message.warning('No web access URL configured for this VM');
       return;
