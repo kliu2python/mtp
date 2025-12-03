@@ -454,22 +454,28 @@ const VMs = () => {
     setSshConnecting(true);
     terminal.write('Connecting to SSH...\r\n');
 
+    const safeSend = (payload) => {
+      if (socket.readyState === WebSocket.OPEN) {
+        socket.send(payload);
+      }
+    };
+
     const handleResize = () => {
       fitAddon.fit();
       const { rows, cols } = terminal;
-      socket.send(JSON.stringify({ type: 'resize', rows, cols }));
+      safeSend(JSON.stringify({ type: 'resize', rows, cols }));
     };
 
     window.addEventListener('resize', handleResize);
 
     const dataDisposable = terminal.onData((data) => {
-      socket.send(JSON.stringify({ type: 'input', data }));
+      safeSend(JSON.stringify({ type: 'input', data }));
     });
 
     socket.onopen = () => {
       setSshConnecting(false);
       const { rows, cols } = terminal;
-      socket.send(JSON.stringify({ type: 'resize', rows, cols }));
+      safeSend(JSON.stringify({ type: 'resize', rows, cols }));
       terminal.write('Connected!\r\n');
       if (!hasSshDetails) {
         terminal.write('Warning: VM SSH credentials not fully set.\r\n');
