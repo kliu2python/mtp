@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
     # Jenkins
-    JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080")
+    JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080/job/mobile_test/")
     JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "taas-api")
     JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "118eed0315e68f05695c4db245f358f2d0")
 

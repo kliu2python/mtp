@@ -1,0 +1,9 @@
+{
+  "claudeCode.baseUrl": "https://litellm.ai-server.fortiappsec.com/v1",
+  "claudeCode.apiKey": "sk-a122sVi4BhKo8XhtRx3Epg",
+  "claudeCode.model": "fortiai180", 
+  "claudeCode.environmentVariables": {
+      "OPENAI_API_KEY": "sk-a122sVi4BhKo8XhtRx3Ep",
+      "OPENAI_BASE_URL": "https://litellm.ai-server.fortiappsec.com/v1"
+  }
+}

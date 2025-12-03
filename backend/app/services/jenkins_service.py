@@ -2,9 +2,10 @@
 Jenkins API service for triggering and monitoring Jenkins jobs
 """
 from typing import Dict, List, Optional, Any
-from jenkinsapi.jenkins import Jenkins
-from jenkinsapi.custom_exceptions import JenkinsAPIException, NoBuildData
+
+from jenkins import Jenkins
 import logging
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
