@@ -36,6 +36,9 @@ class VMCreate(BaseModel):
     ip_address: Optional[str] = None
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
+    web_url: Optional[str] = None
+    web_username: Optional[str] = None
+    web_password: Optional[str] = None
 
 
 class VMUpdate(BaseModel):
@@ -45,6 +48,9 @@ class VMUpdate(BaseModel):
     ip_address: Optional[str] = None
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
+    web_url: Optional[str] = None
+    web_username: Optional[str] = None
+    web_password: Optional[str] = None
     status: Optional[str] = None
     test_priority: Optional[int] = None
     tags: Optional[List[str]] = None
@@ -100,6 +106,9 @@ async def create_vm(vm_data: VMCreate, db: Session = Depends(get_db)):
         ip_address=vm_data.ip_address,
         ssh_username=vm_data.ssh_username,
         ssh_password=vm_data.ssh_password,
+        web_url=vm_data.web_url,
+        web_username=vm_data.web_username,
+        web_password=vm_data.web_password,
         status=VMStatus.STOPPED
     )
     
@@ -129,6 +138,12 @@ async def update_vm(vm_id: str, vm_data: VMUpdate, db: Session = Depends(get_db)
         vm.ssh_username = vm_data.ssh_username
     if vm_data.ssh_password is not None:
         vm.ssh_password = vm_data.ssh_password
+    if vm_data.web_url is not None:
+        vm.web_url = vm_data.web_url
+    if vm_data.web_username is not None:
+        vm.web_username = vm_data.web_username
+    if vm_data.web_password is not None:
+        vm.web_password = vm_data.web_password
     if vm_data.status:
         vm.status = VMStatus(vm_data.status)
     if vm_data.test_priority is not None:
