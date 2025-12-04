@@ -693,24 +693,51 @@ const VMs = () => {
         ? nodes.filter((node) => (node?.platform || '').toLowerCase().includes(normalizedPlatform))
         : nodes;
 
+      const normalizeAvailabilitySignal = (value) => {
+        if (value === true) return true;
+        if (value === false) return false;
+        return null;
+      };
+
+      const resolveStatusAvailability = (rawStatus) => {
+        if (!rawStatus) return null;
+        const status = String(rawStatus).toLowerCase();
+        if (['online', 'available', 'idle', 'ready'].some((flag) => status.includes(flag))) return true;
+        if (['offline', 'busy', 'unavailable', 'error'].some((flag) => status.includes(flag))) return false;
+        return null;
+      };
+
       const options = filteredNodes.map((node) => {
         const nodeId = node?.id || node?.deviceName || node?.name;
-        const nodeStatus = node?.status?.toLowerCase();
+        const nodeStatus = node?.status;
         const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
         const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
         const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
-        const isAvailableFromStatus =
-          nodeStatus === 'online' || nodeStatus === 'available'
-            ? true
-            : nodeStatus === 'offline' || nodeStatus === 'busy'
-              ? false
-              : null;
+        const isAvailableFromStatus = resolveStatusAvailability(nodeStatus);
         const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
         const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
+        const isAvailableFromFlag = normalizeAvailabilitySignal(
+          node?.available ?? node?.isAvailable ?? node?.is_available
+        );
 
-        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions, isAvailableFromApi];
-        const isAvailable = availabilitySources.find((value) => value !== null) ?? false;
-        const derivedStatus = isAvailable ? 'available' : 'not available';
+        const availabilitySignals = [
+          isAvailableFromStatus,
+          isAvailableFromFlag,
+          isAvailableFromSessions,
+          isAvailableFromApi,
+        ].filter((value) => value !== null);
+
+        const hasConflictingSignals = availabilitySignals.includes(true) && availabilitySignals.includes(false);
+        const isAvailable =
+          availabilitySignals.length > 0
+            ? availabilitySignals.some(Boolean)
+            : true;
+
+        const derivedStatus = hasConflictingSignals
+          ? 'check status'
+          : isAvailable
+            ? 'available'
+            : 'not available';
 
         const labelParts = [node?.deviceName || nodeId, node?.platform, node?.platform_version]
           .filter(Boolean)
@@ -1452,7 +1479,7 @@ const VMs = () => {
                     optionRender={(option) => {
                       const data = option.data;
                       const statusLabel = data?.status || (data?.available ? 'available' : 'not available');
-                      const statusColor = data?.available ? 'green' : 'red';
+                      const statusColor = statusLabel === 'check status' ? 'orange' : data?.available ? 'green' : 'red';
                       return (
                         <Space>
                           <span>{option.label}</span>

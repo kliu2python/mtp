@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Popover, Space, Tag, Typography } from 'antd';
 import axios from 'axios';
 import {
   AppstoreOutlined,
@@ -36,6 +36,38 @@ function MenuContent({ collapsed, settings }) {
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
 
+  const integrations = [];
+
+  if (settings?.jenkins_url) {
+    integrations.push({
+      key: 'jenkins',
+      name: 'Jenkins',
+      description: (
+        <div>
+          <div><strong>URL:</strong> {settings.jenkins_url}</div>
+          {settings?.jenkins_user && (
+            <div><strong>User:</strong> {settings.jenkins_user}</div>
+          )}
+        </div>
+      ),
+    });
+  }
+
+  if (settings?.ai_provider) {
+    integrations.push({
+      key: 'ai',
+      name: settings.ai_provider,
+      description: (
+        <div>
+          <div><strong>Provider:</strong> {settings.ai_provider}</div>
+          {settings?.ai_model && (
+            <div><strong>Model:</strong> {settings.ai_model}</div>
+          )}
+        </div>
+      ),
+    });
+  }
+
   return (
     <Sider collapsible collapsed={collapsed.value} onCollapse={collapsed.setter}>
       <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 18, fontWeight: 'bold' }}>
@@ -49,13 +81,41 @@ function MenuContent({ collapsed, settings }) {
         ))}
       </Menu>
       <div style={{ padding: collapsed.value ? 12 : 16, borderTop: '1px solid rgba(255, 255, 255, 0.2)', color: 'rgba(255, 255, 255, 0.85)', fontSize: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>Integrations</div>
-        <div style={{ marginBottom: 4, opacity: 0.9 }}>
-          Jenkins: {settings?.jenkins_url ? settings.jenkins_url : 'Not configured'}
+        <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>Integrations</span>
+          <Tag color="blue" style={{ margin: 0, borderRadius: 12, padding: '0 8px' }}>
+            {integrations.length}
+          </Tag>
         </div>
-        <div style={{ opacity: 0.9 }}>
-          AI: {settings?.ai_provider ? `${settings.ai_provider}${settings?.ai_model ? ` · ${settings.ai_model}` : ''}` : 'Not configured'}
-        </div>
+        {integrations.length === 0 ? (
+          <Typography.Text style={{ color: 'rgba(255, 255, 255, 0.65)' }}>
+            No integrations configured
+          </Typography.Text>
+        ) : (
+          <Space size={[6, 8]} wrap>
+            {integrations.map((integration) => (
+              <Popover
+                key={integration.key}
+                content={integration.description}
+                placement="right"
+                overlayInnerStyle={{ minWidth: 200 }}
+              >
+                <Tag
+                  color="cyan"
+                  style={{
+                    margin: 0,
+                    borderRadius: 16,
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                  }}
+                >
+                  {integration.name}
+                </Tag>
+              </Popover>
+            ))}
+          </Space>
+        )}
       </div>
     </Sider>
   );
