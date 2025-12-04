@@ -4,10 +4,11 @@ const getApiUrl = () => {
   if (!raw) return '';
 
   try {
-    const url = new URL(raw, typeof window !== 'undefined' ? window.location.origin : undefined);
+    const { origin } = typeof window !== 'undefined' ? window.location : { origin: undefined, protocol: undefined };
+    const url = new URL(raw, origin);
 
     // Align protocol with the current page to avoid mixed content errors when served over HTTPS.
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && url.protocol === 'http:') {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
       url.protocol = 'https:';
     }
 
