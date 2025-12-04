@@ -26,6 +26,7 @@ from app.api import (
     tests,
     settings_api,
     mantis,
+    cloud,
 )
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
@@ -138,6 +139,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(saml_auth.router, prefix="/api/saml", tags=["SAML Authentication"])
 
 # Application routes
+app.include_router(cloud.router, prefix="/api/cloud", tags=["Cloud"])
 app.include_router(vms.router, prefix="/api/vms", tags=["VMs"])
 app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
