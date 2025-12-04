@@ -26,9 +26,9 @@ import {
   BarChartOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
+import { API_URL } from '../constants';
 
 const { Title, Text } = Typography;
-const API_URL = import.meta.env.VITE_API_URL || '';
 
 const TestTracker = () => {
   const [vms, setVms] = useState([]);
