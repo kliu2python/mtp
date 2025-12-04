@@ -21,6 +21,19 @@ class JenkinsService:
         self.api_token = settings.JENKINS_API_TOKEN
         self._jenkins = None
 
+    def configure(self, jenkins_url: str, username: str, api_token: str) -> None:
+        """Update Jenkins connection details and reset cached client if needed."""
+        if (
+            jenkins_url != self.jenkins_url
+            or username != self.username
+            or api_token != self.api_token
+        ):
+            self.jenkins_url = jenkins_url
+            self.username = username
+            self.api_token = api_token
+            # Force re-authentication with new credentials
+            self._jenkins = None
+
     def _get_jenkins_instance(self) -> Jenkins:
         """Get or create Jenkins instance"""
         if self._jenkins is None:

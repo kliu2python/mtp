@@ -32,7 +32,8 @@ class AILogAnalyzer:
         provider: AIProvider = AIProvider.CLAUDE,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        ollama_url: str = "http://localhost:11434"
+        ollama_url: str = "http://localhost:11434",
+        base_url: Optional[str] = None,
     ):
         """
         Initialize AI log analyzer
@@ -46,6 +47,7 @@ class AILogAnalyzer:
         self.provider = provider
         self.api_key = api_key
         self.ollama_url = ollama_url
+        self.base_url = base_url
 
         # Default models
         if model:
@@ -64,10 +66,16 @@ class AILogAnalyzer:
         """Initialize the appropriate AI client"""
         if self.provider == AIProvider.CLAUDE:
             from anthropic import Anthropic
-            self.client = Anthropic(api_key=self.api_key)
+            if self.base_url:
+                self.client = Anthropic(api_key=self.api_key, base_url=self.base_url)
+            else:
+                self.client = Anthropic(api_key=self.api_key)
         elif self.provider == AIProvider.OPENAI:
             from openai import OpenAI
-            self.client = OpenAI(api_key=self.api_key)
+            if self.base_url:
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            else:
+                self.client = OpenAI(api_key=self.api_key)
         elif self.provider == AIProvider.OLLAMA:
             import requests
             self.client = requests  # Use requests for Ollama HTTP API
@@ -347,7 +355,9 @@ Provide a structured comparison."""
             return {
                 "success": True,
                 "test_name": test_name,
-                "comparison": response
+                "comparison": response,
+                "provider": self.provider.value,
+                "model": self.model,
             }
         except Exception as e:
             logger.error(f"Failed to compare test runs: {e}")
@@ -361,7 +371,8 @@ Provide a structured comparison."""
 def create_analyzer(
     provider: str = "claude",
     api_key: Optional[str] = None,
-    model: Optional[str] = None
+    model: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> AILogAnalyzer:
     """
     Create AI log analyzer with default configuration
@@ -388,5 +399,6 @@ def create_analyzer(
     return AILogAnalyzer(
         provider=provider_enum,
         api_key=api_key,
-        model=model
+        model=model,
+        base_url=base_url,
     )
