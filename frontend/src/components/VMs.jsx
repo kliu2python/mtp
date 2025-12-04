@@ -4,7 +4,6 @@ import {
   Button,
   Card,
   Checkbox,
-  Col,
   Divider,
   Drawer,
   Empty,
@@ -13,13 +12,10 @@ import {
   InputNumber,
   Modal,
   Popconfirm,
-  Progress,
   Radio,
-  Row,
   Select,
   Space,
   Spin,
-  Statistic,
   Table,
   Tag,
   Tooltip,
@@ -78,7 +74,6 @@ const VMs = () => {
   const [availableApks, setAvailableApks] = useState([]);
   const [loadingApks, setLoadingApks] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState(null);
-  const [runningTests, setRunningTests] = useState({});
   const [testPollingInterval, setTestPollingInterval] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
@@ -233,18 +228,6 @@ const VMs = () => {
       if (response.data.task_id) {
         message.success(`Test queued successfully! Task ID: ${response.data.task_id}`);
 
-        // Store the running test
-        setRunningTests(prev => ({
-          ...prev,
-          [response.data.task_id]: {
-            vmId: selectedTestVm.id,
-            vmName: selectedTestVm.name,
-            status: 'queued',
-            progress: 0,
-            startTime: new Date().toISOString()
-          }
-        }));
-
         // Start polling for status
         startTestStatusPolling(response.data.task_id);
 
@@ -264,17 +247,6 @@ const VMs = () => {
       try {
         const response = await axios.get(`${API_URL}/api/tests/status/${taskId}`);
         const status = response.data;
-
-        setRunningTests(prev => ({
-          ...prev,
-          [taskId]: {
-            ...prev[taskId],
-            status: status.status,
-            progress: status.progress || 0,
-            result: status.result,
-            error: status.error
-          }
-        }));
 
         // Stop polling if test is completed or failed
         if (status.status === 'completed' || status.status === 'failed') {
@@ -339,18 +311,6 @@ const VMs = () => {
 
       if (response.data.task_id) {
         message.success(`Test re-queued successfully! New Task ID: ${response.data.task_id}`);
-
-        // Store the running test
-        setRunningTests(prev => ({
-          ...prev,
-          [response.data.task_id]: {
-            vmId: selectedTestVm.id,
-            vmName: selectedTestVm.name,
-            status: 'queued',
-            progress: 0,
-            startTime: new Date().toISOString()
-          }
-        }));
 
         // Start polling for status
         startTestStatusPolling(response.data.task_id);
@@ -1019,58 +979,6 @@ const VMs = () => {
     },
   ];
 
-  const runningTestColumns = [
-    {
-      title: 'Task ID',
-      dataIndex: 'taskId',
-      key: 'taskId',
-    },
-    {
-      title: 'VM Name',
-      dataIndex: 'vmName',
-      key: 'vmName',
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => {
-        let color = 'default';
-        let icon = null;
-        switch (status) {
-          case 'completed':
-            color = 'green';
-            icon = <span>✅</span>;
-            break;
-          case 'failed':
-            color = 'red';
-            icon = <span>❌</span>;
-            break;
-          case 'running':
-            color = 'blue';
-            icon = <span>⏳</span>;
-            break;
-          default:
-            color = 'default';
-            icon = <span>⏺️</span>;
-        }
-        return (
-          <Space>
-            <Tag color={color}>
-              {icon} {status?.toUpperCase()}
-            </Tag>
-          </Space>
-        );
-      },
-    },
-    {
-      title: 'Progress',
-      dataIndex: 'progress',
-      key: 'progress',
-      render: (progress) => <Progress percent={Math.round(progress)} size="small" />,
-    },
-  ];
-
   const cloudColumns = [
     {
       title: 'Server IP',
@@ -1134,62 +1042,8 @@ const VMs = () => {
     }
   }, [testModalOpen]);
 
-  const renderRunningTests = () => {
-    const runningTestsArray = Object.entries(runningTests).map(([taskId, test]) => ({
-      key: taskId,
-      taskId,
-      ...test,
-    }));
-
-    if (runningTestsArray.length === 0) {
-      return <Empty description="No running tests" />;
-    }
-
-    return (
-      <Table
-        dataSource={runningTestsArray}
-        columns={runningTestColumns}
-        pagination={false}
-        size="small"
-      />
-    );
-  };
-
   return (
     <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Total VMs" value={vms.length} loading={loading} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Running"
-              value={vms.filter(vm => vm.status === 'running').length}
-              loading={loading}
-              valueStyle={{ color: '#3f8600' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="Stopped"
-              value={vms.filter(vm => vm.status === 'stopped').length}
-              loading={loading}
-              valueStyle={{ color: '#cf1322' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="Avg Pass Rate" value={vms.reduce((sum, vm) => sum + (vm.pass_rate || 0), 0) / (vms.length || 1)} loading={loading} suffix="%" />
-          </Card>
-        </Col>
-      </Row>
-
       <Card
         title={<Typography.Title level={3} style={{ margin: 0 }}>Testbed</Typography.Title>}
         bodyStyle={{ paddingTop: 12 }}
@@ -1243,9 +1097,6 @@ const VMs = () => {
           />
 
           <Divider style={{ margin: '12px 0' }} />
-
-          <Typography.Title level={4} style={{ margin: 0 }}>Running Tests</Typography.Title>
-          {renderRunningTests()}
         </Space>
       </Card>
 
