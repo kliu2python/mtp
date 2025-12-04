@@ -173,7 +173,7 @@ const Mantis = () => {
     setLoading(true);
 
     try {
-      const { data } = await axios.get(`${API_URL}/api/mantis`, {
+      const { data } = await axios.get(`${API_URL}/api/mantis/`, {
         params,
       });
 
