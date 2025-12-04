@@ -435,12 +435,18 @@ const VMs = () => {
   const handleSaveCloudService = async () => {
     try {
       const values = await cloudForm.validateFields();
-      const { server_ip: serverIp, server_dns: serverDns, server_version: serverVersion } = values;
+      const {
+        server_ip: serverIp,
+        server_dns: serverDns,
+        client_ip: clientIp,
+        server_version: serverVersion,
+      } = values;
 
       const newService = {
         id: Date.now(),
         server_ip: serverIp,
         server_dns: serverDns,
+        client_ip: clientIp,
         server_version: serverVersion,
       };
 
@@ -454,21 +460,22 @@ const VMs = () => {
   };
 
   const detectCloudVersion = async () => {
-    const { server_ip: serverIp, server_dns: serverDns } = cloudForm.getFieldsValue();
+    const { client_ip: clientIp } = cloudForm.getFieldsValue();
 
-    if (!serverIp && !serverDns) {
-      message.warning('Please provide a server IP or DNS before fetching the version.');
+    if (!clientIp) {
+      message.warning('Please provide the client IP before fetching the version.');
       return;
     }
 
     try {
       setFetchingCloudVersion(true);
       const { data } = await axios.get(`${API_URL}/api/cloud/version`, {
-        params: { ip: serverIp, dns: serverDns },
+        params: { client_ip: clientIp },
       });
-      const detectedVersion = data?.version || data?.server_version || 'Unknown';
+      const detectedVersion = data?.version || 'Unknown';
       cloudForm.setFieldsValue({ server_version: detectedVersion });
-      message.success('Server version fetched automatically');
+      const matchedHost = data?.matched_host ? ` from ${data.matched_host}` : '';
+      message.success(`Server version fetched automatically${matchedHost}`);
     } catch (error) {
       message.warning('Unable to fetch server version automatically. You can enter it manually.');
     } finally {
@@ -1072,6 +1079,12 @@ const VMs = () => {
       render: (value) => value || <Typography.Text type="secondary">Not provided</Typography.Text>,
     },
     {
+      title: 'Client IP',
+      dataIndex: 'client_ip',
+      key: 'client_ip',
+      render: (value) => value || <Typography.Text type="secondary">Not provided</Typography.Text>,
+    },
+    {
       title: 'Server DNS',
       dataIndex: 'server_dns',
       key: 'server_dns',
@@ -1324,6 +1337,14 @@ const VMs = () => {
             ]}
           >
             <Input placeholder="10.0.0.12" />
+          </Form.Item>
+
+          <Form.Item
+            label="Client IP"
+            name="client_ip"
+            rules={[{ required: true, message: 'Please enter the client IP' }]}
+          >
+            <Input placeholder="10.0.0.10" />
           </Form.Item>
 
           <Form.Item
