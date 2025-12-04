@@ -376,6 +376,7 @@ MIT License - See LICENSE file for details
 ## 🆘 Support
 
 - Documentation: Check `/docs` folder
+- Jenkins Cloud runner API: See `docs/JENKINS_CLOUD_API.md` for the Jenkins Cloud endpoints used to trigger and monitor multi-platform test runs.
 - API Docs: http://localhost:8000/docs
 - Issues: Create a GitHub issue
 - Email: support@example.com

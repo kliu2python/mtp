@@ -34,7 +34,7 @@ import axios from 'axios';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import { API_URL, DEVICE_NODES_API_BASE_URL } from '../constants';
+import { API_URL, DEVICE_NODES_API_BASE_URL, JENKINS_CLOUD_API_URL } from '../constants';
 
 const VMs = () => {
   const [vms, setVms] = useState([]);
@@ -200,43 +200,55 @@ const VMs = () => {
       const values = await testForm.validateFields();
       setStartingTest(true);
 
-      const testConfig = {
-        name: `Auto Test - ${selectedTestVm.name}`,
-        vm_id: selectedTestVm.id,
-        apk_id: appSourceType === 'file' ? values.apk_id : null,
-        app_version: appSourceType === 'version' ? values.app_version : null,
-        test_scope: values.test_scope,
-        environment: values.environment,
-        platform: values.platform,
-        execution_method: 'docker', // Always use Docker execution
-        test_suite: values.test_suite,
-        docker_config: {
-          registry: 'docker.io',
-          image: 'pytest-automation',
-          tag: values.docker_tag
+      const parameters = Object.fromEntries(
+        Object.entries({
+          platform: values.platform,
+          test_scope: values.test_scope,
+          test_suite: values.test_suite,
+          docker_tag: values.docker_tag,
+          timeout: values.timeout,
+          device_type: values.device_type,
+          device_id: values.device_type === 'physical' ? values.device_id : undefined,
+          emulator_version: values.device_type === 'emulator' ? values.emulator_version : undefined,
+          apk_id: appSourceType === 'file' ? values.apk_id : undefined,
+          app_version: appSourceType === 'version' ? values.app_version : undefined,
+          vm_ip: selectedTestVm?.ip_address,
+          vm_name: selectedTestVm?.name,
+        }).filter(([, value]) => value !== undefined && value !== null && value !== '')
+      );
+
+      const normalizedEnvironment =
+        typeof values.environment === 'string'
+          ? values.environment.toLowerCase()
+          : values.environment;
+
+      const payload = {
+        environment: normalizedEnvironment,
+        platforms: [values.platform],
+        parameters,
+        custom: {
+          save_as_template: values.save_as_template || false,
+          template_name: values.save_as_template ? values.template_name : undefined,
         },
-        timeout: values.timeout,
-        device_type: values.device_type,
-        device_id: values.device_type === 'physical' ? values.device_id : null,
-        emulator_version: values.device_type === 'emulator' ? values.emulator_version : null,
-        save_as_template: values.save_as_template,
-        template_name: values.template_name
+        project: values.platform === 'ios' ? 'ftm_ios' : 'ftm_android',
       };
 
-      const response = await axios.post(`${API_URL}/api/tests/execute`, testConfig);
+      const response = await axios.post(
+        `${JENKINS_CLOUD_API_URL}/run/execute/ftm`,
+        payload
+      );
 
-      if (response.data.task_id) {
-        message.success(`Test queued successfully! Task ID: ${response.data.task_id}`);
-
-        // Start polling for status
-        startTestStatusPolling(response.data.task_id);
-
+      if (response.data?.results) {
+        message.success('FTM test execution submitted to Jenkins Cloud');
         setTestModalOpen(false);
         testForm.resetFields();
+      } else {
+        message.warning('Request sent but no confirmation returned from Jenkins Cloud');
       }
     } catch (error) {
       console.error('Failed to start test:', error);
-      message.error(error?.response?.data?.detail || 'Failed to start auto test');
+      const errorMsg = error?.response?.data?.error || error?.response?.data?.detail || 'Failed to start auto test';
+      message.error(errorMsg);
     } finally {
       setStartingTest(false);
     }
