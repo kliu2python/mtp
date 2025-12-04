@@ -15,7 +15,14 @@ const getApiUrl = () => {
     return url.toString().replace(/\/$/, '');
   } catch (error) {
     // Fall back to the raw value if URL parsing fails.
-    return raw.replace(/\/$/, '');
+    const sanitized = raw.replace(/\/$/, '');
+
+    // If we're on HTTPS, force HTTPS even when parsing failed.
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      return sanitized.replace(/^http:\/\//i, 'https://');
+    }
+
+    return sanitized;
   }
 };
 
