@@ -1,12 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Card,
-  Col,
   Descriptions,
   Divider,
   Drawer,
   Input,
-  Row,
   Select,
   Space,
   Table,
@@ -347,18 +345,22 @@ const Mantis = () => {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Row gutter={[16, 16]}>
+      <div
+        style={{
+          display: 'grid',
+          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        }}
+      >
         {summaryCards.map((item) => (
-          <Col key={item.label} xs={24} sm={12} md={8} lg={6} xl={4}>
-            <Card>
-              <Space direction="vertical" size={0}>
-                <Text type="secondary">{item.label}</Text>
-                <Title level={3} style={{ margin: 0 }}>{item.value}</Title>
-              </Space>
-            </Card>
-          </Col>
+          <Card key={item.label}>
+            <Space direction="vertical" size={0}>
+              <Text type="secondary">{item.label}</Text>
+              <Title level={3} style={{ margin: 0 }}>{item.value}</Title>
+            </Space>
+          </Card>
         ))}
-      </Row>
+      </div>
 
       <Space align="center" size={8}>
         <ClockCircleOutlined />
