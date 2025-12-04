@@ -682,7 +682,18 @@ const VMs = () => {
 
       const options = nodes.map((node) => {
         const nodeId = node?.id || node?.deviceName || node?.name;
-        const isAvailable = nodeId ? availableSet.has(nodeId) : false;
+        const nodeStatus = node?.status?.toLowerCase();
+        const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
+        const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
+        const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
+        const isAvailableFromStatus =
+          nodeStatus === 'online' ? true : nodeStatus === 'offline' || nodeStatus === 'busy' ? false : null;
+        const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
+        const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
+
+        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions, isAvailableFromApi];
+        const isAvailable = availabilitySources.find((value) => value !== null) ?? false;
+        const derivedStatus = isAvailable ? 'available' : 'not available';
 
         const labelParts = [node?.deviceName || nodeId, node?.platform, node?.platform_version]
           .filter(Boolean)
@@ -694,9 +705,10 @@ const VMs = () => {
           data: {
             platform: node?.platform || 'Unknown',
             version: node?.platform_version || 'Unknown',
-            available: isAvailable
+            available: isAvailable,
+            status: derivedStatus,
           },
-          disabled: !isAvailable
+          disabled: !isAvailable,
         };
       });
 
@@ -1414,14 +1426,14 @@ const VMs = () => {
                     notFoundContent={loadingDevices ? 'Loading devices...' : 'No devices found'}
                     optionRender={(option) => {
                       const data = option.data;
+                      const statusLabel = data?.status || (data?.available ? 'available' : 'not available');
+                      const statusColor = data?.available ? 'green' : 'red';
                       return (
                         <Space>
                           <span>{option.label}</span>
                           {data?.platform && <Tag>{data.platform}</Tag>}
                           {data?.version && <Tag color="blue">{data.version}</Tag>}
-                          <Tag color={data?.available ? 'green' : 'orange'}>
-                            {data?.available ? 'Available' : 'Busy'}
-                          </Tag>
+                          <Tag color={statusColor}>{statusLabel?.toUpperCase()}</Tag>
                         </Space>
                       );
                     }}

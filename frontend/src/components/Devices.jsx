@@ -6,7 +6,7 @@ import { DEVICE_NODES_API_BASE_URL } from '../constants';
 const Devices = () => {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState({ total: 0, available: 0, busy: 0 });
+  const [summary, setSummary] = useState({ total: 0, available: 0, unavailable: 0 });
 
   useEffect(() => {
     fetchDevices();
@@ -39,15 +39,18 @@ const Devices = () => {
 
       const normalizedDevices = nodes.map((node) => {
         const nodeId = node?.id || node?.deviceName || node?.name;
-        const isAvailable = nodeId ? availableSet.has(nodeId) : false;
-        let derivedStatus = 'unknown';
-        if (isAvailable) {
-          derivedStatus = 'available';
-        } else if (node?.status) {
-          derivedStatus = node.status === 'online' ? 'available' : 'busy';
-        } else if (node?.active_sessions > 0) {
-          derivedStatus = 'busy';
-        }
+        const nodeStatus = node?.status?.toLowerCase();
+        const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
+        const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
+        const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
+        const isAvailableFromStatus =
+          nodeStatus === 'online' ? true : nodeStatus === 'offline' || nodeStatus === 'busy' ? false : null;
+        const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
+        const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
+
+        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions, isAvailableFromApi];
+        const isAvailable = availabilitySources.find((value) => value !== null) ?? false;
+        const derivedStatus = isAvailable ? 'available' : 'not available';
 
         return {
           id: nodeId,
@@ -62,13 +65,13 @@ const Devices = () => {
       });
 
       const availableCount = normalizedDevices.filter((device) => device.status === 'available').length;
-      const busyCount = normalizedDevices.filter((device) => device.status === 'busy').length;
+      const unavailableCount = normalizedDevices.length - availableCount;
       const totalCount = normalizedDevices.length;
 
       setSummary({
         total: totalCount,
         available: availableCount,
-        busy: busyCount,
+        unavailable: unavailableCount,
       });
       setDevices(normalizedDevices);
       setLoading(false);
@@ -115,7 +118,7 @@ const Devices = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status) => {
-        const color = status === 'available' ? 'green' : status === 'busy' ? 'orange' : undefined;
+        const color = status === 'available' ? 'green' : status === 'not available' ? 'red' : undefined;
         return <Tag color={color}>{status ? status.toUpperCase() : 'UNKNOWN'}</Tag>;
       },
     },
@@ -154,7 +157,7 @@ const Devices = () => {
         </Col>
         <Col span={8}>
           <Card>
-            <Statistic title="Busy Nodes" value={summary.busy} valueStyle={{ color: '#faad14' }} />
+            <Statistic title="Unavailable Nodes" value={summary.unavailable} valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
       </Row>
