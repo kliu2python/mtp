@@ -169,6 +169,7 @@ const Mantis = () => {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 7, total: 0 });
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [requestParams, setRequestParams] = useState({
     page: 1,
     page_size: 7,
