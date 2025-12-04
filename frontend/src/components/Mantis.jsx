@@ -246,12 +246,24 @@ const Mantis = () => {
     }, {});
 
     return {
+      total: pagination.total || 0,
       new: normalizedCounts.new || 0,
       assigned: normalizedCounts.assigned || 0,
       resolved: (normalizedCounts.resolved || 0) + (normalizedCounts.closed || 0),
       acked: normalizedCounts.acknowledged || normalizedCounts.acked || 0,
     };
-  }, [statusCounts]);
+  }, [pagination.total, statusCounts]);
+
+  const summaryCards = useMemo(
+    () => [
+      { label: 'Total', value: summaryStats.total },
+      { label: 'New', value: summaryStats.new },
+      { label: 'Assigned', value: summaryStats.assigned },
+      { label: 'Resolved', value: summaryStats.resolved },
+      { label: 'Acked', value: summaryStats.acked },
+    ],
+    [summaryStats],
+  );
 
   const columns = [
     {
@@ -336,8 +348,8 @@ const Mantis = () => {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Row gutter={[16, 16]}>
-        {[{ label: 'New', value: summaryStats.new }, { label: 'Assigned', value: summaryStats.assigned }, { label: 'Resolved', value: summaryStats.resolved }, { label: 'Acked', value: summaryStats.acked }].map((item) => (
-          <Col span={6} key={item.label}>
+        {summaryCards.map((item) => (
+          <Col key={item.label} xs={24} sm={12} md={8} lg={6} xl={4}>
             <Card>
               <Space direction="vertical" size={0}>
                 <Text type="secondary">{item.label}</Text>
