@@ -127,7 +127,6 @@ const VMs = () => {
     setLoadingApks(true);
     try {
       const response = await axios.get(`${API_URL}/api/files/`, {});
-      console.log(response.data)
       
       const files = response.data;
       const apkFiles = files.filter((file) => {
@@ -645,22 +644,6 @@ const VMs = () => {
     };
   }, [sshModalOpen, sshModalReady, selectedVm, hasSshDetails]);
 
-  const openLogsDrawer = async (vm) => {
-    setSelectedVm(vm);
-    setLogs([]);
-    setLogsDrawerOpen(true);
-    setLogsLoading(true);
-    try {
-      const response = await axios.get(`${API_URL}/api/vms/${vm.id}/logs`, {
-        params: { tail: 200 }
-      });
-      setLogs(response.data.logs || []);
-    } catch (error) {
-      message.error('Failed to load VM logs');
-    } finally {
-      setLogsLoading(false);
-    }
-  };
 
   const refreshLogs = async () => {
     if (!selectedVm) return;
@@ -674,21 +657,6 @@ const VMs = () => {
       message.error('Failed to refresh logs');
     } finally {
       setLogsLoading(false);
-    }
-  };
-
-  const openMetricsDrawer = async (vm) => {
-    setSelectedVm(vm);
-    setMetrics(null);
-    setMetricsDrawerOpen(true);
-    setMetricsLoading(true);
-    try {
-      const response = await axios.get(`${API_URL}/api/vms/${vm.id}/metrics`);
-      setMetrics(response.data);
-    } catch (error) {
-      message.error('Failed to load VM metrics');
-    } finally {
-      setMetricsLoading(false);
     }
   };
 
@@ -772,16 +740,10 @@ const VMs = () => {
         const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
         const isAvailableFromStatus = resolveStatusAvailability(nodeStatus);
         const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
-        const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
-        const isAvailableFromFlag = normalizeAvailabilitySignal(
-          node?.available ?? node?.isAvailable ?? node?.is_available
-        );
 
         const availabilitySignals = [
           isAvailableFromStatus,
-          isAvailableFromFlag,
-          isAvailableFromSessions,
-          isAvailableFromApi,
+          isAvailableFromSessions
         ].filter((value) => value !== null);
 
         const hasConflictingSignals = availabilitySignals.includes(true) && availabilitySignals.includes(false);
@@ -1658,7 +1620,7 @@ const VMs = () => {
                     options={deviceOptions}
                     notFoundContent={loadingDevices ? 'Loading devices...' : 'No devices found'}
                     optionRender={(option) => {
-                      const data = option.data;
+                      const data = option.data.data;
                       const statusLabel = data?.status || (data?.available ? 'available' : 'not available');
                       const statusColor = statusLabel === 'check status' ? 'orange' : data?.available ? 'green' : 'red';
                       return (
