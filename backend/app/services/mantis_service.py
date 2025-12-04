@@ -125,7 +125,7 @@ class MantisService:
         category: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
-    ) -> Tuple[List[Dict], int]:
+    ) -> Tuple[List[Dict], int, Dict[str, int]]:
         offset = max(page - 1, 0) * page_size
         where_clause, params = self._build_filters(search, status, priority, severity, category)
         select_columns: str
@@ -145,6 +145,10 @@ class MantisService:
             cursor = conn.cursor()
             total = cursor.execute(total_query, params).fetchone()[0]
             rows = cursor.execute(results_query, [*params, page_size, offset]).fetchall()
+            status_counts = cursor.execute(
+                f"SELECT LOWER(status) as status, COUNT(*) as count {base_query} GROUP BY LOWER(status)",
+                params,
+            ).fetchall()
 
         missing_columns = set(self.COLUMNS) - set(available_columns)
 
@@ -154,7 +158,9 @@ class MantisService:
                 row_dict.setdefault(column, None)
             return row_dict
 
-        return [_normalize_row(row) for row in rows], total
+        normalized_counts = {row["status"]: row["count"] for row in status_counts}
+
+        return [_normalize_row(row) for row in rows], total, normalized_counts
 
     def get_issue(self, issue_id: int) -> Optional[Dict]:
         with self._connect() as conn:

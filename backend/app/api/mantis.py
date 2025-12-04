@@ -9,7 +9,7 @@ router = APIRouter()
 @router.get("/", summary="List Mantis issues")
 async def list_mantis_issues(
     page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=200, description="Items per page"),
+    page_size: int = Query(5, ge=1, le=200, description="Items per page"),
     search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
     status: str | None = Query(None, description="Filter by status"),
     priority: str | None = Query(None, description="Filter by priority"),
@@ -19,7 +19,7 @@ async def list_mantis_issues(
     sort_order: str | None = Query("desc", description="asc or desc"),
 ):
     try:
-        issues, total = mantis_service.list_issues(
+        issues, total, status_counts = mantis_service.list_issues(
             page=page,
             page_size=page_size,
             search=search,
@@ -40,6 +40,7 @@ async def list_mantis_issues(
         "page": page,
         "page_size": page_size,
         "last_updated": last_updated,
+        "status_counts": status_counts,
     }
 
 
