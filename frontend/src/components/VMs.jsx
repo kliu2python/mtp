@@ -82,6 +82,7 @@ const VMs = () => {
   const [testPollingInterval, setTestPollingInterval] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
+  const [vmSearch, setVmSearch] = useState('');
   const [testTemplates, setTestTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [deviceType, setDeviceType] = useState('physical');
@@ -803,6 +804,14 @@ const VMs = () => {
     value: `Android ${version}`,
   }));
 
+  const filteredVms = vms.filter((vm) => {
+    if (!vmSearch.trim()) return true;
+    const searchTerm = vmSearch.toLowerCase();
+    return [vm.name, vm.platform, vm.version, vm.ip_address]
+      .filter(Boolean)
+      .some((value) => value.toString().toLowerCase().includes(searchTerm));
+  });
+
   const columns = [
     {
       title: 'Name',
@@ -1168,51 +1177,64 @@ const VMs = () => {
         </Col>
       </Row>
 
-      <Row gutter={16} align="start">
-        <Col xs={24} lg={16}>
-          <Card
-            title={<Typography.Title level={3} style={{ margin: 0 }}>Testbed</Typography.Title>}
-            extra={(
-              <Space>
-                <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
-                  Refresh
-                </Button>
-                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-                  Add VM
-                </Button>
-              </Space>
-            )}
-            bodyStyle={{ paddingTop: 12 }}
-          >
-            <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} />
-
-            <Divider orientation="left">Running Tests</Divider>
-            {renderRunningTests()}
-          </Card>
-        </Col>
-        <Col xs={24} lg={8}>
-          <Card
-            title="Cloud Services"
-            extra={(
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCloudModal}>
-                Add New
+      <Card
+        title={<Typography.Title level={3} style={{ margin: 0 }}>Testbed</Typography.Title>}
+        bodyStyle={{ paddingTop: 12 }}
+      >
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography.Title level={4} style={{ margin: 0 }}>VMs</Typography.Title>
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
+                Refresh
               </Button>
-            )}
-          >
-            <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-              Track the cloud endpoints that back your testbed. Server version is optional and can be auto-detected.
-            </Typography.Paragraph>
-            <Table
-              dataSource={cloudServices}
-              columns={cloudColumns}
-              rowKey="id"
-              pagination={false}
-              size="small"
-              locale={{ emptyText: <Empty description="No cloud services configured" /> }}
-            />
-          </Card>
-        </Col>
-      </Row>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                Add VM
+              </Button>
+            </Space>
+          </div>
+          <Input.Search
+            placeholder="Search VMs"
+            allowClear
+            onChange={(e) => setVmSearch(e.target.value)}
+            style={{ maxWidth: 300 }}
+            value={vmSearch}
+          />
+          <Table
+            dataSource={filteredVms}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            pagination={{ pageSize: 5 }}
+            style={{ marginTop: 12 }}
+          />
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography.Title level={4} style={{ margin: 0 }}>Cloud Services</Typography.Title>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCloudModal}>
+              Add New
+            </Button>
+          </div>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            Track the cloud endpoints that back your testbed. Server version is optional and can be auto-detected.
+          </Typography.Paragraph>
+          <Table
+            dataSource={cloudServices}
+            columns={cloudColumns}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            locale={{ emptyText: <Empty description="No cloud services configured" /> }}
+          />
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <Typography.Title level={4} style={{ margin: 0 }}>Running Tests</Typography.Title>
+          {renderRunningTests()}
+        </Space>
+      </Card>
 
       <Modal
         title={vmModalMode === 'edit' ? 'Edit Virtual Machine' : 'Create Virtual Machine'}
