@@ -432,6 +432,9 @@ const VMs = () => {
     }
   };
 
+  const getCloudServiceDisplayName = (service) =>
+    service.server_dns || service.server_ip || service.client_ip || 'Cloud Service';
+
   const handleSaveCloudService = async () => {
     try {
       const values = await cloudForm.validateFields();
@@ -444,6 +447,7 @@ const VMs = () => {
 
       const newService = {
         id: Date.now(),
+        name: getCloudServiceDisplayName(values),
         server_ip: serverIp,
         server_dns: serverDns,
         client_ip: clientIp,
@@ -485,6 +489,18 @@ const VMs = () => {
 
   const removeCloudService = (serviceId) => {
     setCloudServices((prev) => prev.filter((service) => service.id !== serviceId));
+  };
+
+  const openCloudTestModal = (service) => {
+    const cloudTestTarget = {
+      id: service.id,
+      name: service.name || getCloudServiceDisplayName(service),
+      platform: service.platform || 'Cloud',
+      version: service.server_version || 'N/A',
+      ip_address: service.server_ip || service.client_ip,
+    };
+
+    openTestModal(cloudTestTarget);
   };
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
@@ -1100,14 +1116,27 @@ const VMs = () => {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
-        <Popconfirm
-          title="Remove cloud service"
-          description="This will remove the cloud service from the testbed."
-          okType="danger"
-          onConfirm={() => removeCloudService(record.id)}
-        >
-          <Button danger size="small">Delete</Button>
-        </Popconfirm>
+        <Space size="small">
+          <Tooltip title="Run automated tests with Docker execution">
+            <Button
+              size="small"
+              type="primary"
+              icon={<ExperimentOutlined />}
+              onClick={() => openCloudTestModal(record)}
+              style={{ background: '#52c41a', borderColor: '#52c41a' }}
+            >
+              Start
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title="Remove cloud service"
+            description="This will remove the cloud service from the testbed."
+            okType="danger"
+            onConfirm={() => removeCloudService(record.id)}
+          >
+            <Button danger size="small">Delete</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -1230,9 +1259,6 @@ const VMs = () => {
               Add New
             </Button>
           </div>
-          <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-            Track the cloud endpoints that back your testbed. Server version is optional and can be auto-detected.
-          </Typography.Paragraph>
           <Table
             dataSource={cloudServices}
             columns={cloudColumns}
