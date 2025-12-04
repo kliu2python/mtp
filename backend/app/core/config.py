@@ -62,6 +62,10 @@ class Settings(BaseSettings):
 
     # Monitoring
     PROMETHEUS_PORT: int = 9090
+
+    # Mantis
+    MANTIS_DB_PATH: str = os.getenv("MANTIS_DB_PATH", "./data/mantis.db")
+    MANTIS_TABLE_NAME: str = os.getenv("MANTIS_TABLE_NAME", "issues_49_FortiToken")
     
     class Config:
         case_sensitive = True

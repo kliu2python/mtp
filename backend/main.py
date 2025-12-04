@@ -25,6 +25,7 @@ from app.api import (
     jenkins_api,
     tests,
     settings_api,
+    mantis,
 )
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
@@ -148,6 +149,7 @@ app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Prox
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
 app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

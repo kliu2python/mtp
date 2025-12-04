@@ -5,6 +5,7 @@ import axios from 'axios';
 import {
   AppstoreOutlined,
   BarChartOutlined,
+  BugOutlined,
   CloudServerOutlined,
   DashboardOutlined,
   FileOutlined,
@@ -19,6 +20,7 @@ import ApkBrowser from './components/ApkBrowser';
 import TestTracker from './components/TestTracker';
 import Files from './components/Files';
 import Settings from './components/Settings';
+import Mantis from './components/Mantis';
 import { API_URL } from './constants';
 
 const { Content, Sider } = Layout;
@@ -33,6 +35,7 @@ function MenuContent({ collapsed, settings }) {
     { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
     { key: '/test-tracker', icon: <BarChartOutlined />, label: 'Test Tracker', path: '/test-tracker' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
+    { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
 
@@ -152,6 +155,7 @@ function App() {
               <Route path="/apks" element={<ApkBrowser />} />
               <Route path="/test-tracker" element={<TestTracker />} />
               <Route path="/files" element={<Files />} />
+              <Route path="/mantis" element={<Mantis />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>
