@@ -154,10 +154,10 @@ const DetailDrawer = ({ issue, onClose }) => (
 const Mantis = () => {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 8, total: 0 });
   const [requestParams, setRequestParams] = useState({
     page: 1,
-    page_size: 20,
+    page_size: 8,
     search: '',
     status: null,
     priority: null,
@@ -439,7 +439,7 @@ const Mantis = () => {
             pageSize: pagination.pageSize,
             total: pagination.total,
             showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50', '100', '200'],
+            pageSizeOptions: ['8', '10', '20', '50', '100', '200'],
           }}
           onChange={handleTableChange}
           onRow={(record) => ({
