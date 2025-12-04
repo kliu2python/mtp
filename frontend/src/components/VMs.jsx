@@ -160,9 +160,16 @@ const VMs = () => {
     });
     // Fetch APKs for the default platform
     fetchApksForPlatform(defaultPlatform);
-    fetchAvailableDevices();
+    fetchAvailableDevices(defaultPlatform);
     setTestModalOpen(true);
   };
+
+  useEffect(() => {
+    if (selectedPlatform === 'ios' && deviceType === 'emulator') {
+      setDeviceType('physical');
+      testForm.setFieldsValue({ device_type: 'physical', emulator_version: undefined });
+    }
+  }, [selectedPlatform, deviceType, testForm]);
 
   const handleNextStep = async () => {
     try {
@@ -654,7 +661,7 @@ const VMs = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  const fetchAvailableDevices = async () => {
+  const fetchAvailableDevices = async (platformFilter = selectedPlatform) => {
     setLoadingDevices(true);
     try {
       const [nodesResponse, availableResponse] = await Promise.all([
@@ -680,14 +687,24 @@ const VMs = () => {
         }
       }
 
-      const options = nodes.map((node) => {
+      const normalizedPlatform = platformFilter ? platformFilter.toLowerCase() : null;
+
+      const filteredNodes = normalizedPlatform
+        ? nodes.filter((node) => (node?.platform || '').toLowerCase().includes(normalizedPlatform))
+        : nodes;
+
+      const options = filteredNodes.map((node) => {
         const nodeId = node?.id || node?.deviceName || node?.name;
         const nodeStatus = node?.status?.toLowerCase();
         const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
         const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
         const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
         const isAvailableFromStatus =
-          nodeStatus === 'online' ? true : nodeStatus === 'offline' || nodeStatus === 'busy' ? false : null;
+          nodeStatus === 'online' || nodeStatus === 'available'
+            ? true
+            : nodeStatus === 'offline' || nodeStatus === 'busy'
+              ? false
+              : null;
         const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
         const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
 
@@ -1372,7 +1389,13 @@ const VMs = () => {
                   onChange={(value) => {
                     setSelectedPlatform(value);
                     fetchApksForPlatform(value);
-                    testForm.setFieldsValue({ apk_id: undefined });
+                    fetchAvailableDevices(value);
+                    const updates = { apk_id: undefined, device_id: undefined, emulator_version: undefined };
+                    if (value === 'ios') {
+                      setDeviceType('physical');
+                      updates.device_type = 'physical';
+                    }
+                    testForm.setFieldsValue(updates);
                   }}
                   options={[
                     { label: 'iOS', value: 'ios' },
@@ -1395,7 +1418,9 @@ const VMs = () => {
                   }}
                 >
                   <Radio value="physical">Physical Device</Radio>
-                  <Radio value="emulator">Android Emulator</Radio>
+                  <Radio value="emulator" disabled={selectedPlatform === 'ios'}>
+                    Android Emulator
+                  </Radio>
                 </Radio.Group>
               </Form.Item>
 
