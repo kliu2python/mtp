@@ -13,6 +13,7 @@ from starlette.websockets import WebSocketState
 
 from app.core.database import get_db
 from app.models.vm import VirtualMachine, VMStatus, VMPlatform, TestRecord
+from app.models.cloud_service import CloudService
 from app.services.docker_service import docker_service
 from pydantic import BaseModel
 from app.services.ssh_session import (
@@ -420,6 +421,7 @@ async def get_vm_test_records(
 async def get_stats_summary(db: Session = Depends(get_db)):
     """Get overall statistics"""
     total_vms = db.query(VirtualMachine).count()
+    cloud_service_count = db.query(CloudService).count()
     running_vms = db.query(VirtualMachine).filter(
         VirtualMachine.status == VMStatus.RUNNING
     ).count()
@@ -444,8 +446,13 @@ async def get_stats_summary(db: Session = Depends(get_db)):
     total_tests = len(recent_tests)
     passed_tests = sum(1 for t in recent_tests if t.status == "passed")
     failed_tests = sum(1 for t in recent_tests if t.status == "failed")
-    
+
     return {
+        "testbeds": {
+            "total": total_vms + cloud_service_count,
+            "virtual_machines": total_vms,
+            "cloud_services": cloud_service_count,
+        },
         "vms": {
             "total": total_vms,
             "running": running_vms,
