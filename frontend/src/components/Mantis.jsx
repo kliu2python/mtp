@@ -18,6 +18,7 @@ import {
 } from 'antd';
 import {
   BugOutlined,
+  CloseCircleOutlined,
   LinkOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -151,25 +152,28 @@ const DetailDrawer = ({ issue, onClose }) => (
   </Drawer>
 );
 
+const DEFAULT_REQUEST_PARAMS = {
+  page: 1,
+  page_size: 20,
+  search: '',
+  status: null,
+  priority: null,
+  severity: null,
+  category: null,
+  sort_by: 'date_submitted',
+  sort_order: 'desc',
+};
+
 const Mantis = () => {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [requestParams, setRequestParams] = useState({
-    page: 1,
-    page_size: 20,
-    search: '',
-    status: null,
-    priority: null,
-    severity: null,
-    category: null,
-    sort_by: 'date_submitted',
-    sort_order: 'desc',
-  });
+  const [requestParams, setRequestParams] = useState(DEFAULT_REQUEST_PARAMS);
   const [selectedIssue, setSelectedIssue] = useState(null);
 
-  const fetchIssues = async (overrides = {}) => {
-    const params = { ...requestParams, ...overrides };
+  const fetchIssues = async (overrides = {}, options = { reset: false }) => {
+    const baseParams = options.reset ? DEFAULT_REQUEST_PARAMS : requestParams;
+    const params = { ...baseParams, ...overrides };
     setLoading(true);
 
     try {
@@ -202,6 +206,10 @@ const Mantis = () => {
 
   const handleFilterChange = (field, value) => {
     fetchIssues({ [field]: value || null, page: 1 });
+  };
+
+  const handleResetFilters = () => {
+    fetchIssues(DEFAULT_REQUEST_PARAMS, { reset: true });
   };
 
   const handleTableChange = (nextPagination, filters, sorter) => {
@@ -360,6 +368,9 @@ const Mantis = () => {
             <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading}>
               Refresh
             </Button>
+            <Button icon={<CloseCircleOutlined />} onClick={handleResetFilters} disabled={loading}>
+              Reset Filters
+            </Button>
           </Space>
         }
       >
@@ -367,6 +378,13 @@ const Mantis = () => {
           <Input.Search
             placeholder="Search summary, description, or category"
             allowClear
+            value={requestParams.search || ''}
+            onChange={(event) =>
+              setRequestParams((prev) => ({
+                ...prev,
+                search: event.target.value,
+              }))
+            }
             onSearch={handleSearch}
             enterButton={<SearchOutlined />}
             style={{ width: 320 }}
