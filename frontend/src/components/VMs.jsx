@@ -86,6 +86,8 @@ const VMs = () => {
   const [cloudServices, setCloudServices] = useState([]);
   const [cloudModalOpen, setCloudModalOpen] = useState(false);
   const [fetchingCloudVersion, setFetchingCloudVersion] = useState(false);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [savingCloudService, setSavingCloudService] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -95,6 +97,7 @@ const VMs = () => {
 
   useEffect(() => {
     fetchVMs();
+    fetchCloudServices();
   }, []);
 
   const fetchVMs = async () => {
@@ -410,28 +413,34 @@ const VMs = () => {
   const handleSaveCloudService = async () => {
     try {
       const values = await cloudForm.validateFields();
-      const {
-        server_ip: serverIp,
-        server_dns: serverDns,
-        client_ip: clientIp,
-        server_version: serverVersion,
-      } = values;
+      setSavingCloudService(true);
+      const { data } = await axios.post(`${API_URL}/api/cloud/services`, values);
+      const createdService = data?.cloud_service;
 
-      const newService = {
-        id: Date.now(),
-        name: getCloudServiceDisplayName(values),
-        server_ip: serverIp,
-        server_dns: serverDns,
-        client_ip: clientIp,
-        server_version: serverVersion,
-      };
+      if (createdService) {
+        setCloudServices((prev) => [...prev, createdService]);
+      }
 
-      setCloudServices((prev) => [...prev, newService]);
       setCloudModalOpen(false);
       message.success('Cloud service added');
     } catch (error) {
       if (error.errorFields) return;
-      message.error('Failed to save cloud service');
+      const detail = error.response?.data?.detail;
+      message.error(detail || 'Failed to save cloud service');
+    } finally {
+      setSavingCloudService(false);
+    }
+  };
+
+  const fetchCloudServices = async () => {
+    try {
+      setCloudLoading(true);
+      const { data } = await axios.get(`${API_URL}/api/cloud/services`);
+      setCloudServices(data?.cloud_services || []);
+    } catch (error) {
+      message.error('Failed to load cloud services');
+    } finally {
+      setCloudLoading(false);
     }
   };
 
@@ -459,8 +468,14 @@ const VMs = () => {
     }
   };
 
-  const removeCloudService = (serviceId) => {
-    setCloudServices((prev) => prev.filter((service) => service.id !== serviceId));
+  const removeCloudService = async (serviceId) => {
+    try {
+      await axios.delete(`${API_URL}/api/cloud/services/${serviceId}`);
+      setCloudServices((prev) => prev.filter((service) => service.id !== serviceId));
+      message.success('Cloud service removed');
+    } catch (error) {
+      message.error('Failed to remove cloud service');
+    }
   };
 
   const openCloudTestModal = (service) => {
@@ -1129,6 +1144,7 @@ const VMs = () => {
             dataSource={cloudServices}
             columns={cloudColumns}
             rowKey="id"
+            loading={cloudLoading}
             pagination={false}
             size="small"
             locale={{ emptyText: <Empty description="No cloud services configured" /> }}
@@ -1208,7 +1224,7 @@ const VMs = () => {
         onCancel={() => setCloudModalOpen(false)}
         onOk={handleSaveCloudService}
         okText="Save"
-        confirmLoading={fetchingCloudVersion}
+        confirmLoading={savingCloudService}
       >
         <Form form={cloudForm} layout="vertical">
           <Form.Item

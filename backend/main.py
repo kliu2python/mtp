@@ -34,6 +34,7 @@ from sqlalchemy import inspect, text
 # Import models to ensure they are registered with SQLAlchemy
 from app.models.user import User
 from app.models.settings import PlatformSettings
+from app.models.cloud_service import CloudService
 
 
 def _ensure_optional_columns():
