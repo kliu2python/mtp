@@ -47,6 +47,7 @@ const VMs = () => {
   const [vmModalMode, setVmModalMode] = useState('create');
   const [savingVm, setSavingVm] = useState(false);
   const [form] = Form.useForm();
+  const [cloudForm] = Form.useForm();
   const [editingVm, setEditingVm] = useState(null);
   const [selectedVm, setSelectedVm] = useState(null);
   const [sshModalOpen, setSshModalOpen] = useState(false);
@@ -86,6 +87,9 @@ const VMs = () => {
   const [deviceType, setDeviceType] = useState('physical');
   const [deviceOptions, setDeviceOptions] = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
+  const [cloudServices, setCloudServices] = useState([]);
+  const [cloudModalOpen, setCloudModalOpen] = useState(false);
+  const [fetchingCloudVersion, setFetchingCloudVersion] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -383,6 +387,11 @@ const VMs = () => {
     setVmModalOpen(true);
   };
 
+  const openCloudModal = () => {
+    cloudForm.resetFields();
+    setCloudModalOpen(true);
+  };
+
   const openEditModal = (vm) => {
     form.resetFields();
     setEditingVm(vm);
@@ -421,6 +430,54 @@ const VMs = () => {
       message.error('Failed to save virtual machine');
       setSavingVm(false);
     }
+  };
+
+  const handleSaveCloudService = async () => {
+    try {
+      const values = await cloudForm.validateFields();
+      const { server_ip: serverIp, server_dns: serverDns, server_version: serverVersion } = values;
+
+      const newService = {
+        id: Date.now(),
+        server_ip: serverIp,
+        server_dns: serverDns,
+        server_version: serverVersion,
+      };
+
+      setCloudServices((prev) => [...prev, newService]);
+      setCloudModalOpen(false);
+      message.success('Cloud service added');
+    } catch (error) {
+      if (error.errorFields) return;
+      message.error('Failed to save cloud service');
+    }
+  };
+
+  const detectCloudVersion = async () => {
+    const { server_ip: serverIp, server_dns: serverDns } = cloudForm.getFieldsValue();
+
+    if (!serverIp && !serverDns) {
+      message.warning('Please provide a server IP or DNS before fetching the version.');
+      return;
+    }
+
+    try {
+      setFetchingCloudVersion(true);
+      const { data } = await axios.get(`${API_URL}/api/cloud/version`, {
+        params: { ip: serverIp, dns: serverDns },
+      });
+      const detectedVersion = data?.version || data?.server_version || 'Unknown';
+      cloudForm.setFieldsValue({ server_version: detectedVersion });
+      message.success('Server version fetched automatically');
+    } catch (error) {
+      message.warning('Unable to fetch server version automatically. You can enter it manually.');
+    } finally {
+      setFetchingCloudVersion(false);
+    }
+  };
+
+  const removeCloudService = (serviceId) => {
+    setCloudServices((prev) => prev.filter((service) => service.id !== serviceId));
   };
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
@@ -1036,6 +1093,41 @@ const VMs = () => {
     },
   ];
 
+  const cloudColumns = [
+    {
+      title: 'Server IP',
+      dataIndex: 'server_ip',
+      key: 'server_ip',
+      render: (value) => value || <Typography.Text type="secondary">Not provided</Typography.Text>,
+    },
+    {
+      title: 'Server DNS',
+      dataIndex: 'server_dns',
+      key: 'server_dns',
+      render: (value) => value || <Typography.Text type="secondary">Not provided</Typography.Text>,
+    },
+    {
+      title: 'Server Version',
+      dataIndex: 'server_version',
+      key: 'server_version',
+      render: (value) => value || <Typography.Text type="secondary">Auto-detect pending</Typography.Text>,
+    },
+    {
+      title: 'Actions',
+      key: 'actions',
+      render: (_, record) => (
+        <Popconfirm
+          title="Remove cloud service"
+          description="This will remove the cloud service from the testbed."
+          okType="danger"
+          onConfirm={() => removeCloudService(record.id)}
+        >
+          <Button danger size="small">Delete</Button>
+        </Popconfirm>
+      ),
+    },
+  ];
+
   const fetchTestTemplates = async () => {
     try {
       setLoadingTemplates(true);
@@ -1114,22 +1206,51 @@ const VMs = () => {
         </Col>
       </Row>
 
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Virtual Machines</h1>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
-            Refresh
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-            Add VM
-          </Button>
-        </Space>
-      </div>
+      <Row gutter={16} align="start">
+        <Col xs={24} lg={16}>
+          <Card
+            title={<Typography.Title level={3} style={{ margin: 0 }}>Testbed</Typography.Title>}
+            extra={(
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
+                  Refresh
+                </Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+                  Add VM
+                </Button>
+              </Space>
+            )}
+            bodyStyle={{ paddingTop: 12 }}
+          >
+            <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} />
 
-      <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} />
-
-      <Divider orientation="left">Running Tests</Divider>
-      {renderRunningTests()}
+            <Divider orientation="left">Running Tests</Divider>
+            {renderRunningTests()}
+          </Card>
+        </Col>
+        <Col xs={24} lg={8}>
+          <Card
+            title="Cloud Services"
+            extra={(
+              <Button type="primary" icon={<PlusOutlined />} onClick={openCloudModal}>
+                Add New
+              </Button>
+            )}
+          >
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              Track the cloud endpoints that back your testbed. Server version is optional and can be auto-detected.
+            </Typography.Paragraph>
+            <Table
+              dataSource={cloudServices}
+              columns={cloudColumns}
+              rowKey="id"
+              pagination={false}
+              size="small"
+              locale={{ emptyText: <Empty description="No cloud services configured" /> }}
+            />
+          </Card>
+        </Col>
+      </Row>
 
       <Modal
         title={vmModalMode === 'edit' ? 'Edit Virtual Machine' : 'Create Virtual Machine'}
@@ -1191,6 +1312,66 @@ const VMs = () => {
           </Form.Item>
           <Form.Item label="SSH Password" name="ssh_password">
             <Input.Password />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Add Cloud Service"
+        open={cloudModalOpen}
+        onCancel={() => setCloudModalOpen(false)}
+        onOk={handleSaveCloudService}
+        okText="Save"
+        confirmLoading={fetchingCloudVersion}
+      >
+        <Form form={cloudForm} layout="vertical">
+          <Form.Item
+            label="Server IP"
+            name="server_ip"
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (value || getFieldValue('server_dns')) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('Please enter a server IP or DNS'));
+                },
+              }),
+            ]}
+          >
+            <Input placeholder="10.0.0.12" />
+          </Form.Item>
+
+          <Form.Item
+            label="Server DNS"
+            name="server_dns"
+            rules={[
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (value || getFieldValue('server_ip')) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('Please enter a server IP or DNS'));
+                },
+              }),
+            ]}
+          >
+            <Input placeholder="gateway.example.com" />
+          </Form.Item>
+
+          <Form.Item
+            label="Server Version (optional)"
+            name="server_version"
+            tooltip="We will try to detect this automatically when possible."
+          >
+            <Input
+              placeholder="Auto-detected"
+              addonAfter={(
+                <Button type="link" onClick={detectCloudVersion} loading={fetchingCloudVersion} style={{ padding: 0 }}>
+                  Auto-detect
+                </Button>
+              )}
+            />
           </Form.Item>
         </Form>
       </Modal>
