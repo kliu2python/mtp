@@ -1,5 +1,5 @@
 const getApiUrl = () => {
-  const raw = import.meta.env.VITE_API_URL || '';
+  const raw = import.meta.env.VITE_API_URL || 'https://mtp.qa.fortinet-us.com';
 
   if (!raw) return '';
 
