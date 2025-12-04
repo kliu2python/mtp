@@ -62,10 +62,6 @@ class Settings(BaseSettings):
 
     # Monitoring
     PROMETHEUS_PORT: int = 9090
-
-    # FortiGate
-    FGT_BASE_URL: str = os.getenv("FGT_BASE_URL", "https://10.160.13.190")
-    FGT_VERIFY_SSL: bool = os.getenv("FGT_VERIFY_SSL", "False").lower() == "true"
     
     class Config:
         case_sensitive = True
