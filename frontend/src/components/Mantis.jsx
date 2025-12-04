@@ -167,8 +167,18 @@ const DEFAULT_REQUEST_PARAMS = {
 const Mantis = () => {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 20, total: 0 });
-  const [requestParams, setRequestParams] = useState(DEFAULT_REQUEST_PARAMS);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 8, total: 0 });
+  const [requestParams, setRequestParams] = useState({
+    page: 1,
+    page_size: 8,
+    search: '',
+    status: null,
+    priority: null,
+    severity: null,
+    category: null,
+    sort_by: 'date_submitted',
+    sort_order: 'desc',
+  });
   const [selectedIssue, setSelectedIssue] = useState(null);
 
   const fetchIssues = async (overrides = {}, options = { reset: false }) => {
@@ -457,7 +467,7 @@ const Mantis = () => {
             pageSize: pagination.pageSize,
             total: pagination.total,
             showSizeChanger: true,
-            pageSizeOptions: ['10', '20', '50', '100', '200'],
+            pageSizeOptions: ['8', '10', '20', '50', '100', '200'],
           }}
           onChange={handleTableChange}
           onRow={(record) => ({
