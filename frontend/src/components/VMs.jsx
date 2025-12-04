@@ -82,6 +82,7 @@ const VMs = () => {
   const [testPollingInterval, setTestPollingInterval] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
+  const [vmSearch, setVmSearch] = useState('');
   const [testTemplates, setTestTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [deviceType, setDeviceType] = useState('physical');
@@ -803,6 +804,14 @@ const VMs = () => {
     value: `Android ${version}`,
   }));
 
+  const filteredVms = vms.filter((vm) => {
+    if (!vmSearch.trim()) return true;
+    const searchTerm = vmSearch.toLowerCase();
+    return [vm.name, vm.platform, vm.version, vm.ip_address]
+      .filter(Boolean)
+      .some((value) => value.toString().toLowerCase().includes(searchTerm));
+  });
+
   const columns = [
     {
       title: 'Name',
@@ -1184,7 +1193,21 @@ const VMs = () => {
               </Button>
             </Space>
           </div>
-          <Table dataSource={vms} columns={columns} rowKey="id" loading={loading} />
+          <Input.Search
+            placeholder="Search VMs"
+            allowClear
+            onChange={(e) => setVmSearch(e.target.value)}
+            style={{ maxWidth: 300 }}
+            value={vmSearch}
+          />
+          <Table
+            dataSource={filteredVms}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            pagination={{ pageSize: 5 }}
+            style={{ marginTop: 12 }}
+          />
 
           <Divider style={{ margin: '12px 0' }} />
 
