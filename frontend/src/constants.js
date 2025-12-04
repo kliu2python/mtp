@@ -35,13 +35,15 @@ const getJenkinsCloudApiUrl = () => {
   const raw = import.meta.env.VITE_JENKINS_CLOUD_API_URL ||
     'http://10.160.24.88:31224/api/v1/jenkins_cloud';
 
+  const hasExplicitProtocol = /^https?:\/\//i.test(raw);
+
   if (!raw) return '';
 
   try {
     const { origin } = typeof window !== 'undefined' ? window.location : { origin: undefined, protocol: undefined };
     const url = new URL(raw, origin);
 
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !hasExplicitProtocol) {
       url.protocol = 'https:';
     }
 
@@ -49,7 +51,7 @@ const getJenkinsCloudApiUrl = () => {
   } catch (error) {
     const sanitized = raw.replace(/\/$/, '');
 
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && !hasExplicitProtocol) {
       return sanitized.replace(/^http:\/\//i, 'https://');
     }
 
