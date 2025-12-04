@@ -101,7 +101,8 @@ const DetailDrawer = ({ issue, onClose }) => (
               {(issue.severity || 'Unknown').toUpperCase()}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="Reporter ID">{issue.reporter_id || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Assignee">{issue.assignee || issue.assigner || issue.assigned_to || issue.handler_id || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Reporter">{issue.reporter || issue.reporter_id || '-'}</Descriptions.Item>
           <Descriptions.Item label="Project ID">{issue.project_id || '-'}</Descriptions.Item>
           <Descriptions.Item label="Version">{issue.version || '-'}</Descriptions.Item>
           <Descriptions.Item label="Target Version">{issue.target_version || '-'}</Descriptions.Item>
@@ -134,11 +135,9 @@ const DetailDrawer = ({ issue, onClose }) => (
           </Card>
         )}
 
-        {issue.bugnotes && (
-          <Card title="Bugnotes" size="small">
-            <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{issue.bugnotes}</Paragraph>
-          </Card>
-        )}
+        <Card title="Bugnotes" size="small">
+          <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{issue.bugnotes || 'No bugnotes provided.'}</Paragraph>
+        </Card>
 
         {issue.url && (
           <Card size="small">
@@ -155,7 +154,7 @@ const DetailDrawer = ({ issue, onClose }) => (
 
 const DEFAULT_REQUEST_PARAMS = {
   page: 1,
-  page_size: 20,
+  page_size: 5,
   search: '',
   status: null,
   priority: null,
@@ -168,11 +167,12 @@ const DEFAULT_REQUEST_PARAMS = {
 const Mantis = () => {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 7, total: 0 });
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 5, total: 0 });
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [statusCounts, setStatusCounts] = useState({});
   const [requestParams, setRequestParams] = useState({
     page: 1,
-    page_size: 7,
+    page_size: 5,
     search: '',
     status: null,
     priority: null,
@@ -195,6 +195,7 @@ const Mantis = () => {
 
       setIssues(data.issues || []);
       setLastUpdated(data.last_updated || null);
+      setStatusCounts(data.status_counts || {});
       setRequestParams(params);
       setPagination({
         current: data.page || params.page,
@@ -239,18 +240,18 @@ const Mantis = () => {
   };
 
   const summaryStats = useMemo(() => {
-    const statusCount = issues.reduce((acc, issue) => {
-      const key = (issue.status || 'unknown').toLowerCase();
-      acc[key] = (acc[key] || 0) + 1;
+    const normalizedCounts = Object.entries(statusCounts || {}).reduce((acc, [key, count]) => {
+      acc[(key || '').toLowerCase()] = count;
       return acc;
     }, {});
 
     return {
-      total: pagination.total,
-      open: (statusCount.new || 0) + (statusCount.acknowledged || 0) + (statusCount.assigned || 0),
-      resolved: (statusCount.resolved || 0) + (statusCount.closed || 0),
+      new: normalizedCounts.new || 0,
+      assigned: normalizedCounts.assigned || 0,
+      resolved: (normalizedCounts.resolved || 0) + (normalizedCounts.closed || 0),
+      acked: normalizedCounts.acknowledged || normalizedCounts.acked || 0,
     };
-  }, [issues, pagination.total]);
+  }, [statusCounts]);
 
   const columns = [
     {
@@ -335,38 +336,16 @@ const Mantis = () => {
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Row gutter={[16, 16]}>
-        <Col span={6}>
-          <Card>
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">Total Issues</Text>
-              <Title level={3} style={{ margin: 0 }}>{summaryStats.total}</Title>
-            </Space>
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">Open</Text>
-              <Title level={3} style={{ margin: 0 }}>{summaryStats.open}</Title>
-            </Space>
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">Resolved / Closed</Text>
-              <Title level={3} style={{ margin: 0 }}>{summaryStats.resolved}</Title>
-            </Space>
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">Current Page</Text>
-              <Title level={3} style={{ margin: 0 }}>{pagination.current}</Title>
-            </Space>
-          </Card>
-        </Col>
+        {[{ label: 'New', value: summaryStats.new }, { label: 'Assigned', value: summaryStats.assigned }, { label: 'Resolved', value: summaryStats.resolved }, { label: 'Acked', value: summaryStats.acked }].map((item) => (
+          <Col span={6} key={item.label}>
+            <Card>
+              <Space direction="vertical" size={0}>
+                <Text type="secondary">{item.label}</Text>
+                <Title level={3} style={{ margin: 0 }}>{item.value}</Title>
+              </Space>
+            </Card>
+          </Col>
+        ))}
       </Row>
 
       <Space align="center" size={8}>
@@ -477,7 +456,7 @@ const Mantis = () => {
             pageSize: pagination.pageSize,
             total: pagination.total,
             showSizeChanger: true,
-            pageSizeOptions: ['8', '10', '20', '50', '100', '200'],
+            pageSizeOptions: ['5', '10', '15', '20'],
           }}
           onChange={handleTableChange}
           onRow={(record) => ({
