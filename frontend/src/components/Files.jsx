@@ -7,19 +7,16 @@ import {
   Input,
   Modal,
   Popconfirm,
-  Select,
   Space,
   Table,
   Tooltip,
   Upload,
-  Typography,
   message
 } from 'antd';
 import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
-  EyeOutlined,
   QrcodeOutlined,
   ReloadOutlined,
   UploadOutlined
@@ -33,11 +30,10 @@ const Files = () => {
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [selectedFilePath, setSelectedFilePath] = useState(null);
   const [qrData, setQrData] = useState(null);
   const [editingFileName, setEditingFileName] = useState('');
   const [fileList, setFileList] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -161,13 +157,6 @@ const Files = () => {
     }
   };
 
-  const handleOpenSelectedFile = () => {
-    if (selectedFilePath) {
-      const url = buildFileUrl(selectedFilePath);
-      window.open(url, '_blank');
-    }
-  };
-
   const columns = [
     {
       title: 'Name',
@@ -224,12 +213,10 @@ const Files = () => {
     },
   ];
 
-  const fileOptions = files.map(file => ({
-    value: file.name,
-    label: file.name,
-    description: `Path: ${file.path || 'N/A'}`,
-    path: file.path,
-  }));
+  const filteredFiles = files.filter((file) =>
+    file.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (file.path || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   const uploadProps = {
     multiple: true,
@@ -251,48 +238,13 @@ const Files = () => {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>File Browser</h1>
         <Space>
-          <Select
-            showSearch
+          <Input
             allowClear
-            placeholder="Browse files"
+            placeholder="Filter files"
             style={{ minWidth: 280 }}
-            value={selectedFile}
-            options={fileOptions}
-            optionFilterProp="label"
-            optionRender={(option) => (
-              <Space direction="vertical" size={0}>
-                <Typography.Text strong>{option.data.label}</Typography.Text>
-                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  {option.data.description}
-                </Typography.Text>
-              </Space>
-            )}
-            onChange={(value, option) => {
-              setSelectedFile(value || null);
-              setSelectedFilePath(option?.path || null);
-            }}
-            onSelect={(value) => handleEditFile(value)}
-            dropdownRender={(menu) => (
-              <div>
-                <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0' }}>
-                  <Typography.Text strong>Quick File Browser</Typography.Text>
-                  <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                    Select a file to view or edit its contents
-                  </Typography.Text>
-                </div>
-                {menu}
-              </div>
-            )}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <Tooltip title="Open file from test-files storage">
-            <Button
-              icon={<EyeOutlined />}
-              onClick={handleOpenSelectedFile}
-              disabled={!selectedFilePath}
-            >
-              Open
-            </Button>
-          </Tooltip>
           <Button
             type="primary"
             icon={<UploadOutlined />}
@@ -311,7 +263,7 @@ const Files = () => {
 
       <Card>
         <Table
-          dataSource={files}
+          dataSource={filteredFiles}
           columns={columns}
           rowKey="name"
           loading={loading}
