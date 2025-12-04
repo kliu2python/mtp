@@ -38,7 +38,7 @@ import axios from 'axios';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import { API_URL } from '../constants';
+import { API_URL, DEVICE_NODES_API_BASE_URL } from '../constants';
 
 const VMs = () => {
   const [vms, setVms] = useState([]);
@@ -83,6 +83,9 @@ const VMs = () => {
   const [appSourceType, setAppSourceType] = useState('file'); // 'file' or 'version'
   const [testTemplates, setTestTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [deviceType, setDeviceType] = useState('physical');
+  const [deviceOptions, setDeviceOptions] = useState([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -142,6 +145,7 @@ const VMs = () => {
     testForm.resetFields();
     setCurrentStep(0);
     setAppSourceType('file');
+    setDeviceType('physical');
     // Set default values based on VM
     const defaultPlatform = vm.platform === 'FortiGate' ? 'ios' : 'android';
     setSelectedPlatform(defaultPlatform);
@@ -151,10 +155,12 @@ const VMs = () => {
       environment: 'qa',
       test_suite: 'FortiToken_Mobile',
       timeout: 3600,
-      docker_tag: 'latest'
+      docker_tag: 'latest',
+      device_type: 'physical'
     });
     // Fetch APKs for the default platform
     fetchApksForPlatform(defaultPlatform);
+    fetchAvailableDevices();
     setTestModalOpen(true);
   };
 
@@ -163,7 +169,14 @@ const VMs = () => {
       // Validate fields for current step before proceeding
       if (currentStep === 0) {
         // Step 1: Platform & App Version
-        await testForm.validateFields(['platform', appSourceType === 'file' ? 'apk_id' : 'app_version']);
+        const validationFields = ['platform', 'device_type'];
+        validationFields.push(appSourceType === 'file' ? 'apk_id' : 'app_version');
+        if (deviceType === 'physical') {
+          validationFields.push('device_id');
+        } else {
+          validationFields.push('emulator_version');
+        }
+        await testForm.validateFields(validationFields);
       } else if (currentStep === 1) {
         // Step 2: Test Configuration
         await testForm.validateFields(['test_scope', 'test_suite', 'environment']);
@@ -197,6 +210,9 @@ const VMs = () => {
           tag: values.docker_tag
         },
         timeout: values.timeout,
+        device_type: values.device_type,
+        device_id: values.device_type === 'physical' ? values.device_id : null,
+        emulator_version: values.device_type === 'emulator' ? values.emulator_version : null,
         save_as_template: values.save_as_template,
         template_name: values.template_name
       };
@@ -638,6 +654,62 @@ const VMs = () => {
     return new Date(dateString).toLocaleString();
   };
 
+  const fetchAvailableDevices = async () => {
+    setLoadingDevices(true);
+    try {
+      const [nodesResponse, availableResponse] = await Promise.all([
+        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`),
+        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes/available`)
+      ]);
+
+      const nodesData = nodesResponse.data || {};
+      const nodes = Object.values(nodesData);
+
+      const availableRaw = availableResponse.data;
+      let availableSet = new Set();
+
+      if (Array.isArray(availableRaw)) {
+        availableSet = new Set(availableRaw.map((item) => (typeof item === 'string' ? item : item?.id)));
+      } else if (availableRaw) {
+        if (Array.isArray(availableRaw.available)) {
+          availableSet = new Set(
+            availableRaw.available.map((item) => (typeof item === 'string' ? item : item?.id))
+          );
+        } else {
+          availableSet = new Set(Object.keys(availableRaw));
+        }
+      }
+
+      const options = nodes.map((node) => {
+        const nodeId = node?.id || node?.deviceName || node?.name;
+        const isAvailable = nodeId ? availableSet.has(nodeId) : false;
+
+        const labelParts = [node?.deviceName || nodeId, node?.platform, node?.platform_version]
+          .filter(Boolean)
+          .join(' • ');
+
+        return {
+          value: nodeId,
+          label: labelParts || nodeId,
+          data: {
+            platform: node?.platform || 'Unknown',
+            version: node?.platform_version || 'Unknown',
+            available: isAvailable
+          },
+          disabled: !isAvailable
+        };
+      });
+
+      setDeviceOptions(options);
+    } catch (error) {
+      console.error('Failed to fetch devices', error);
+      message.error('Failed to load available devices');
+      setDeviceOptions([]);
+    } finally {
+      setLoadingDevices(false);
+    }
+  };
+
   const appFileOptions = availableApks.map((apk) => ({
     value: apk.name,
     label: apk.name,
@@ -649,6 +721,11 @@ const VMs = () => {
       .filter(Boolean)
       .join(' ')?.toLowerCase(),
     apk,
+  }));
+
+  const emulatorVersionOptions = [10, 11, 12, 13, 14, 15].map((version) => ({
+    label: `Android ${version}`,
+    value: `Android ${version}`,
   }));
 
   const columns = [
@@ -821,6 +898,7 @@ const VMs = () => {
               });
               setAppSourceType(record.app_version ? 'version' : 'file');
               setSelectedPlatform(record.platform);
+              setDeviceType(record.device_type || 'physical');
               setCurrentStep(1);
             }}
           >
@@ -1290,6 +1368,87 @@ const VMs = () => {
                   ]}
                 />
               </Form.Item>
+
+              <Form.Item
+                name="device_type"
+                label="Device Type"
+                rules={[{ required: true, message: 'Please select a device type' }]}
+              >
+                <Radio.Group
+                  value={deviceType}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setDeviceType(value);
+                    testForm.setFieldsValue({ device_id: undefined, emulator_version: undefined, device_type: value });
+                  }}
+                >
+                  <Radio value="physical">Physical Device</Radio>
+                  <Radio value="emulator">Android Emulator</Radio>
+                </Radio.Group>
+              </Form.Item>
+
+              {deviceType === 'physical' ? (
+                <Form.Item
+                  name="device_id"
+                  label="Physical Device"
+                  rules={[
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        if (getFieldValue('device_type') !== 'physical') {
+                          return Promise.resolve();
+                        }
+                        if (value) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(new Error('Please select a physical device'));
+                      },
+                    }),
+                  ]}
+                  tooltip="Devices and availability mirror the Devices page"
+                >
+                  <Select
+                    placeholder="Select an available device"
+                    loading={loadingDevices}
+                    optionFilterProp="label"
+                    options={deviceOptions}
+                    notFoundContent={loadingDevices ? 'Loading devices...' : 'No devices found'}
+                    optionRender={(option) => {
+                      const data = option.data;
+                      return (
+                        <Space>
+                          <span>{option.label}</span>
+                          {data?.platform && <Tag>{data.platform}</Tag>}
+                          {data?.version && <Tag color="blue">{data.version}</Tag>}
+                          <Tag color={data?.available ? 'green' : 'orange'}>
+                            {data?.available ? 'Available' : 'Busy'}
+                          </Tag>
+                        </Space>
+                      );
+                    }}
+                  />
+                </Form.Item>
+              ) : (
+                <Form.Item
+                  name="emulator_version"
+                  label="Android Emulator Version"
+                  rules={[
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        if (getFieldValue('device_type') !== 'emulator') {
+                          return Promise.resolve();
+                        }
+                        if (value) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(new Error('Please select an emulator Android version'));
+                      },
+                    }),
+                  ]}
+                  tooltip="Select the Android version to emulate (10 - 15)"
+                >
+                  <Select placeholder="Choose Android version" options={emulatorVersionOptions} />
+                </Form.Item>
+              )}
 
               <Form.Item label="App Version Source">
                 <Radio.Group
