@@ -4,7 +4,9 @@ Jenkins API endpoints
 from fastapi import APIRouter, HTTPException, Depends, status
 from typing import List, Dict, Any
 import logging
+from app.core.database import get_db
 from app.services.jenkins_service import jenkins_service
+from app.services.settings_service import platform_settings_service
 from app.schemas.jenkins import (
     JenkinsJobTrigger,
     JenkinsJobInfo,
@@ -15,14 +17,26 @@ from app.schemas.jenkins import (
     JenkinsStopBuildResponse,
     JenkinsJobParameter
 )
+from fastapi import Depends
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
+def _configure_jenkins(db: Session):
+    settings = platform_settings_service.get_settings(db)
+    jenkins_service.configure(
+        settings.jenkins_url or "",
+        settings.jenkins_username or "",
+        settings.jenkins_api_token or "",
+    )
+    return settings
+
+
 @router.get("/jobs", response_model=List[JenkinsJobList])
-async def get_all_jenkins_jobs():
+async def get_all_jenkins_jobs(db: Session = Depends(get_db)):
     """
     Get all available Jenkins jobs
 
@@ -30,6 +44,7 @@ async def get_all_jenkins_jobs():
         List of Jenkins jobs with basic information
     """
     try:
+        _configure_jenkins(db)
         jobs = jenkins_service.get_all_jobs()
         return jobs
     except ValueError as e:
@@ -46,7 +61,7 @@ async def get_all_jenkins_jobs():
 
 
 @router.get("/jobs/{job_name}", response_model=JenkinsJobInfo)
-async def get_jenkins_job_info(job_name: str):
+async def get_jenkins_job_info(job_name: str, db: Session = Depends(get_db)):
     """
     Get detailed information about a specific Jenkins job
 
@@ -57,6 +72,7 @@ async def get_jenkins_job_info(job_name: str):
         Detailed job information
     """
     try:
+        _configure_jenkins(db)
         job_info = jenkins_service.get_job_info(job_name)
         return job_info
     except ValueError as e:
@@ -73,7 +89,7 @@ async def get_jenkins_job_info(job_name: str):
 
 
 @router.post("/jobs/trigger", response_model=JenkinsTriggerResponse)
-async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger):
+async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger, db: Session = Depends(get_db)):
     """
     Trigger a Jenkins job with optional parameters
 
@@ -84,6 +100,7 @@ async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger):
         Trigger response with job and queue information
     """
     try:
+        _configure_jenkins(db)
         result = jenkins_service.trigger_job(
             job_name=job_trigger.job_name,
             parameters=job_trigger.parameters
@@ -103,7 +120,7 @@ async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger):
 
 
 @router.get("/jobs/{job_name}/builds/{build_number}", response_model=JenkinsBuildStatus)
-async def get_build_status(job_name: str, build_number: int):
+async def get_build_status(job_name: str, build_number: int, db: Session = Depends(get_db)):
     """
     Get status of a specific build
 
@@ -115,6 +132,7 @@ async def get_build_status(job_name: str, build_number: int):
         Build status information
     """
     try:
+        _configure_jenkins(db)
         build_status = jenkins_service.get_build_status(job_name, build_number)
         return build_status
     except ValueError as e:
@@ -131,7 +149,7 @@ async def get_build_status(job_name: str, build_number: int):
 
 
 @router.get("/jobs/{job_name}/builds/{build_number}/console", response_model=JenkinsBuildConsole)
-async def get_build_console(job_name: str, build_number: int):
+async def get_build_console(job_name: str, build_number: int, db: Session = Depends(get_db)):
     """
     Get console output of a specific build
 
@@ -143,6 +161,7 @@ async def get_build_console(job_name: str, build_number: int):
         Console output
     """
     try:
+        _configure_jenkins(db)
         console_output = jenkins_service.get_build_console_output(job_name, build_number)
         return {
             "job_name": job_name,
@@ -163,7 +182,7 @@ async def get_build_console(job_name: str, build_number: int):
 
 
 @router.post("/jobs/{job_name}/builds/{build_number}/stop", response_model=JenkinsStopBuildResponse)
-async def stop_jenkins_build(job_name: str, build_number: int):
+async def stop_jenkins_build(job_name: str, build_number: int, db: Session = Depends(get_db)):
     """
     Stop a running build
 
@@ -175,6 +194,7 @@ async def stop_jenkins_build(job_name: str, build_number: int):
         Stop operation result
     """
     try:
+        _configure_jenkins(db)
         result = jenkins_service.stop_build(job_name, build_number)
         return result
     except ValueError as e:
@@ -191,7 +211,7 @@ async def stop_jenkins_build(job_name: str, build_number: int):
 
 
 @router.get("/jobs/{job_name}/parameters", response_model=List[JenkinsJobParameter])
-async def get_job_parameters(job_name: str):
+async def get_job_parameters(job_name: str, db: Session = Depends(get_db)):
     """
     Get parameters defined for a job
 
@@ -202,6 +222,7 @@ async def get_job_parameters(job_name: str):
         List of parameter definitions
     """
     try:
+        _configure_jenkins(db)
         parameters = jenkins_service.get_job_parameters(job_name)
         return parameters
     except ValueError as e:

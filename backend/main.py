@@ -11,12 +11,27 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, files, webhooks, apks, stf, ai_analysis, auth, saml_auth, device_proxy, jenkins_api, tests
+from app.api import (
+    vms,
+    devices,
+    files,
+    webhooks,
+    apks,
+    stf,
+    ai_analysis,
+    auth,
+    saml_auth,
+    device_proxy,
+    jenkins_api,
+    tests,
+    settings_api,
+)
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
 # Import models to ensure they are registered with SQLAlchemy
 from app.models.user import User
+from app.models.settings import PlatformSettings
 
 
 def _ensure_optional_columns():
@@ -132,6 +147,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
 app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
+app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

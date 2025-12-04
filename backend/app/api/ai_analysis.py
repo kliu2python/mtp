@@ -8,7 +8,8 @@ from typing import Optional, List
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.services.ai_analyzer import create_analyzer, AIProvider, LogType
+from app.services.ai_analyzer import create_analyzer, LogType
+from app.services.settings_service import platform_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ class AnalyzeLogsRequest(BaseModel):
     log_type: str = "generic"  # fgt, fac, pytest, generic
     test_name: Optional[str] = None
     focus_areas: Optional[List[str]] = None
-    provider: str = "claude"  # claude, openai, ollama
+    provider: Optional[str] = None  # claude, openai, ollama
     model: Optional[str] = None
 
 
@@ -29,7 +30,7 @@ class SuggestFixesRequest(BaseModel):
     """Request for fix suggestions"""
     error_message: str
     context: Optional[dict] = None
-    provider: str = "claude"
+    provider: Optional[str] = None
     model: Optional[str] = None
 
 
@@ -38,12 +39,29 @@ class CompareTestRunsRequest(BaseModel):
     previous_log: str
     current_log: str
     test_name: str
-    provider: str = "claude"
+    provider: Optional[str] = None
     model: Optional[str] = None
 
 
+def _build_analyzer(
+    db: Session,
+    provider: Optional[str],
+    model: Optional[str],
+):
+    settings = platform_settings_service.get_settings(db)
+    resolved_provider = provider or settings.ai_provider or "claude"
+    resolved_model = model or settings.ai_model
+    analyzer = create_analyzer(
+        provider=resolved_provider,
+        api_key=settings.ai_api_key,
+        model=resolved_model,
+        base_url=settings.ai_base_url,
+    )
+    return analyzer, resolved_provider, resolved_model
+
+
 @router.post("/analyze-logs")
-async def analyze_logs(request: AnalyzeLogsRequest):
+async def analyze_logs(request: AnalyzeLogsRequest, db: Session = Depends(get_db)):
     """
     Analyze logs using AI
 
@@ -51,9 +69,10 @@ async def analyze_logs(request: AnalyzeLogsRequest):
     """
     try:
         # Create analyzer
-        analyzer = create_analyzer(
+        analyzer, resolved_provider, resolved_model = _build_analyzer(
+            db=db,
             provider=request.provider,
-            model=request.model
+            model=request.model,
         )
 
         # Validate log type
@@ -86,7 +105,7 @@ async def analyze_logs(request: AnalyzeLogsRequest):
 
 
 @router.post("/suggest-fixes")
-async def suggest_fixes(request: SuggestFixesRequest):
+async def suggest_fixes(request: SuggestFixesRequest, db: Session = Depends(get_db)):
     """
     Get AI-powered fix suggestions for an error
 
@@ -94,9 +113,10 @@ async def suggest_fixes(request: SuggestFixesRequest):
     """
     try:
         # Create analyzer
-        analyzer = create_analyzer(
+        analyzer, resolved_provider, resolved_model = _build_analyzer(
+            db=db,
             provider=request.provider,
-            model=request.model
+            model=request.model,
         )
 
         # Get suggestions
@@ -107,8 +127,8 @@ async def suggest_fixes(request: SuggestFixesRequest):
 
         return {
             "success": True,
-            "provider": request.provider,
-            "model": analyzer.model,
+            "provider": resolved_provider,
+            "model": resolved_model or analyzer.model,
             "error_message": request.error_message,
             "suggestions": suggestions
         }
@@ -119,7 +139,7 @@ async def suggest_fixes(request: SuggestFixesRequest):
 
 
 @router.post("/compare-runs")
-async def compare_test_runs(request: CompareTestRunsRequest):
+async def compare_test_runs(request: CompareTestRunsRequest, db: Session = Depends(get_db)):
     """
     Compare two test runs and identify changes
 
@@ -127,9 +147,10 @@ async def compare_test_runs(request: CompareTestRunsRequest):
     """
     try:
         # Create analyzer
-        analyzer = create_analyzer(
+        analyzer, resolved_provider, resolved_model = _build_analyzer(
+            db=db,
             provider=request.provider,
-            model=request.model
+            model=request.model,
         )
 
         # Compare runs
@@ -141,6 +162,11 @@ async def compare_test_runs(request: CompareTestRunsRequest):
 
         if not result["success"]:
             raise HTTPException(status_code=500, detail=result.get("error", "Comparison failed"))
+
+        result.update({
+            "provider": resolved_provider,
+            "model": resolved_model or analyzer.model,
+        })
 
         return result
 
