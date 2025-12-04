@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+from uuid import UUID
 
 
 class TestScope(str, Enum):
@@ -54,7 +55,7 @@ class DockerConfig(BaseModel):
 class TestExecutionRequest(BaseModel):
     """Schema for test execution request"""
     name: str = Field(..., description="Test execution name")
-    vm_id: int = Field(..., description="VM ID to run tests on")
+    vm_id: UUID = Field(..., description="VM ID to run tests on")
     apk_id: Optional[int] = Field(None, description="APK/IPA file ID to test (optional)")
     app_version: Optional[str] = Field(None, description="App version string (alternative to apk_id)")
     test_scope: TestScope = Field(..., description="Test scope (smoke, regression, integration, critical, release)")
@@ -74,7 +75,7 @@ class TestExecutionResponse(BaseModel):
     task_id: str = Field(..., description="Test execution task ID")
     status: TestStatus = Field(..., description="Current test status")
     message: str = Field(..., description="Status message")
-    vm_id: int = Field(..., description="VM ID")
+    vm_id: UUID = Field(..., description="VM ID")
     vm_name: str = Field(..., description="VM name")
     jenkins_job: Optional[str] = Field(None, description="Jenkins job name")
     jenkins_build: Optional[int] = Field(None, description="Jenkins build number")
@@ -86,7 +87,7 @@ class TestStatusResponse(BaseModel):
     status: TestStatus = Field(..., description="Current test status")
     progress: int = Field(default=0, description="Test progress percentage (0-100)")
     message: str = Field(..., description="Status message")
-    vm_id: int = Field(..., description="VM ID")
+    vm_id: UUID = Field(..., description="VM ID")
     vm_name: str = Field(..., description="VM name")
     started_at: Optional[datetime] = Field(None, description="Test start time")
     completed_at: Optional[datetime] = Field(None, description="Test completion time")
@@ -98,7 +99,7 @@ class TestStatusResponse(BaseModel):
 
 class TestConfigResponse(BaseModel):
     """Schema for previous test configuration"""
-    vm_id: int
+    vm_id: UUID
     vm_name: str
     last_test: Optional[Dict[str, Any]] = None
     available_configs: List[Dict[str, Any]] = []
