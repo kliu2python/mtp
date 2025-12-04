@@ -83,41 +83,59 @@ function MenuContent({ collapsed, settings }) {
           </Menu.Item>
         ))}
       </Menu>
-      <div style={{ padding: collapsed.value ? 12 : 16, borderTop: '1px solid rgba(255, 255, 255, 0.2)', color: 'rgba(255, 255, 255, 0.85)', fontSize: 12 }}>
-        <div style={{ fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span>Integrations</span>
+      <div
+        style={{
+          padding: collapsed.value ? 12 : 16,
+          borderTop: '1px solid rgba(255, 255, 255, 0.2)',
+          color: 'rgba(255, 255, 255, 0.85)',
+          fontSize: 12,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 600,
+            marginBottom: collapsed.value ? 0 : 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: collapsed.value ? 'center' : 'flex-start',
+            gap: 6,
+          }}
+        >
+          {!collapsed.value && <span>Integrations</span>}
           <Tag color="blue" style={{ margin: 0, borderRadius: 12, padding: '0 8px' }}>
             {integrations.length}
           </Tag>
         </div>
-        {integrations.length === 0 ? (
-          <Typography.Text style={{ color: 'rgba(255, 255, 255, 0.65)' }}>
-            No integrations configured
-          </Typography.Text>
-        ) : (
-          <Space size={[6, 8]} wrap>
-            {integrations.map((integration) => (
-              <Popover
-                key={integration.key}
-                content={integration.description}
-                placement="right"
-                overlayInnerStyle={{ minWidth: 200 }}
-              >
-                <Tag
-                  color="cyan"
-                  style={{
-                    margin: 0,
-                    borderRadius: 16,
-                    padding: '4px 10px',
-                    cursor: 'pointer',
-                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
-                  }}
+        {!collapsed.value && (
+          integrations.length === 0 ? (
+            <Typography.Text style={{ color: 'rgba(255, 255, 255, 0.65)' }}>
+              No integrations configured
+            </Typography.Text>
+          ) : (
+            <Space size={[6, 8]} wrap>
+              {integrations.map((integration) => (
+                <Popover
+                  key={integration.key}
+                  content={integration.description}
+                  placement="right"
+                  overlayInnerStyle={{ minWidth: 200 }}
                 >
-                  {integration.name}
-                </Tag>
-              </Popover>
-            ))}
-          </Space>
+                  <Tag
+                    color="cyan"
+                    style={{
+                      margin: 0,
+                      borderRadius: 16,
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.15)',
+                    }}
+                  >
+                    {integration.name}
+                  </Tag>
+                </Popover>
+              ))}
+            </Space>
+          )
         )}
       </div>
     </Sider>
