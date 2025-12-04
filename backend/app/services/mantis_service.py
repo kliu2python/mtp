@@ -42,6 +42,7 @@ class MantisService:
 
     def __init__(self, db_path: Optional[str] = None) -> None:
         self.db_path = Path(db_path or settings.MANTIS_DB_PATH)
+        self._available_columns: List[str] = []
 
     def _connect(self) -> sqlite3.Connection:
         if not self.db_path.exists():
@@ -52,6 +53,17 @@ class MantisService:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _get_available_columns(self, conn: sqlite3.Connection) -> List[str]:
+        """Read available columns from the SQLite table and cache them."""
+        if not self._available_columns:
+            cursor = conn.execute(f"PRAGMA table_info({self.TABLE_NAME})")
+            self._available_columns = [row[1] for row in cursor.fetchall() if row and len(row) > 1]
+
+        if not self._available_columns:
+            raise ValueError(f"Table {self.TABLE_NAME} has no columns")
+
+        return self._available_columns
 
     def _build_filters(
         self,
@@ -90,8 +102,14 @@ class MantisService:
         where_clause = f" WHERE {' AND '.join(conditions)}" if conditions else ""
         return where_clause, params
 
-    def _validate_sort(self, sort_by: Optional[str], sort_order: Optional[str]) -> Tuple[str, str]:
-        sort_column = sort_by if sort_by in self.COLUMNS else self.DEFAULT_SORT
+    def _validate_sort(
+        self,
+        sort_by: Optional[str],
+        sort_order: Optional[str],
+        available_columns: List[str],
+    ) -> Tuple[str, str]:
+        default_sort = self.DEFAULT_SORT if self.DEFAULT_SORT in available_columns else available_columns[0]
+        sort_column = sort_by if sort_by in available_columns else default_sort
         order = "DESC" if (sort_order or "").lower() == "desc" else "ASC"
         return sort_column, order
 
@@ -109,31 +127,51 @@ class MantisService:
     ) -> Tuple[List[Dict], int]:
         offset = max(page - 1, 0) * page_size
         where_clause, params = self._build_filters(search, status, priority, severity, category)
-        sort_column, order = self._validate_sort(sort_by, sort_order)
-
-        select_columns = ", ".join(self.COLUMNS)
-        base_query = f"FROM {self.TABLE_NAME}{where_clause}"
-        results_query = (
-            f"SELECT {select_columns} {base_query} "
-            f"ORDER BY {sort_column} {order} LIMIT ? OFFSET ?"
-        )
-        total_query = f"SELECT COUNT(*) {base_query}"
+        select_columns: str
 
         with self._connect() as conn:
+            available_columns = self._get_available_columns(conn)
+            sort_column, order = self._validate_sort(sort_by, sort_order, available_columns)
+            select_columns = ", ".join(available_columns)
+
+            base_query = f"FROM {self.TABLE_NAME}{where_clause}"
+            results_query = (
+                f"SELECT {select_columns} {base_query} "
+                f"ORDER BY {sort_column} {order} LIMIT ? OFFSET ?"
+            )
+            total_query = f"SELECT COUNT(*) {base_query}"
+
             cursor = conn.cursor()
             total = cursor.execute(total_query, params).fetchone()[0]
             rows = cursor.execute(results_query, [*params, page_size, offset]).fetchall()
 
-        return [dict(row) for row in rows], total
+        missing_columns = set(self.COLUMNS) - set(available_columns)
+
+        def _normalize_row(row: sqlite3.Row) -> Dict:
+            row_dict = dict(row)
+            for column in missing_columns:
+                row_dict.setdefault(column, None)
+            return row_dict
+
+        return [_normalize_row(row) for row in rows], total
 
     def get_issue(self, issue_id: int) -> Optional[Dict]:
-        select_columns = ", ".join(self.COLUMNS)
-        query = f"SELECT {select_columns} FROM {self.TABLE_NAME} WHERE id = ?"
-
         with self._connect() as conn:
+            available_columns = self._get_available_columns(conn)
+            select_columns = ", ".join(available_columns)
+            query = f"SELECT {select_columns} FROM {self.TABLE_NAME} WHERE id = ?"
+
             row = conn.execute(query, (issue_id,)).fetchone()
 
-        return dict(row) if row else None
+        if not row:
+            return None
+
+        missing_columns = set(self.COLUMNS) - set(available_columns)
+        issue = dict(row)
+        for column in missing_columns:
+            issue.setdefault(column, None)
+
+        return issue
 
 
 mantis_service = MantisService()
