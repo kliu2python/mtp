@@ -30,5 +30,7 @@ certs/*.key
 certs/*.crt
 certs/*.pem
 
+# Database
+backend/data/mantis_data.db
 
 test-files/**
