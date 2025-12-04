@@ -27,5 +27,6 @@ const getApiUrl = () => {
 };
 
 export const API_URL = getApiUrl();
+console.log(API_URL)
 // Use backend proxy to avoid mixed content errors
 export const DEVICE_NODES_API_BASE_URL = `${API_URL}/api/device/nodes/proxy`;
