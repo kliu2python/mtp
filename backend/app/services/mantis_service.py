@@ -1,6 +1,7 @@
 """
 Service for reading Mantis issues from a SQLite database.
 """
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 from typing import Dict, List, Optional, Tuple
@@ -172,6 +173,16 @@ class MantisService:
             issue.setdefault(column, None)
 
         return issue
+
+    def get_db_last_modified(self) -> str:
+        """Return the database file's last modified timestamp in ISO format."""
+        if not self.db_path.exists():
+            raise FileNotFoundError(
+                f"Mantis database not found at {self.db_path}. Update MANTIS_DB_PATH or place the file at that location."
+            )
+
+        modified_ts = self.db_path.stat().st_mtime
+        return datetime.fromtimestamp(modified_ts, tz=timezone.utc).isoformat()
 
 
 mantis_service = MantisService()

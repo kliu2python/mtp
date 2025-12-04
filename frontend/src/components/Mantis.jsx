@@ -19,6 +19,7 @@ import {
 import {
   BugOutlined,
   CloseCircleOutlined,
+  ClockCircleOutlined,
   LinkOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -192,6 +193,7 @@ const Mantis = () => {
       });
 
       setIssues(data.issues || []);
+      setLastUpdated(data.last_updated || null);
       setRequestParams(params);
       setPagination({
         current: data.page || params.page,
@@ -365,6 +367,13 @@ const Mantis = () => {
           </Card>
         </Col>
       </Row>
+
+      <Space align="center" size={8}>
+        <ClockCircleOutlined />
+        <Text type="secondary">
+          Latest update: {formatDate(lastUpdated)}
+        </Text>
+      </Space>
 
       <Card
         title={
