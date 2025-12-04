@@ -20,8 +20,7 @@ import {
   AppleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
-
-const API_URL = import.meta.env.VITE_API_URL || '';
+import { API_URL } from '../constants';
 
 const DeviceSelector = ({ visible, onCancel, onSelect, selectedDeviceIds = [], multiSelect = true }) => {
   const [devices, setDevices] = useState([]);
