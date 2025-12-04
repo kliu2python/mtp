@@ -28,7 +28,7 @@ function MenuContent({ collapsed, settings }) {
 
   const menuItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard', path: '/' },
-    { key: '/vms', icon: <CloudServerOutlined />, label: 'Virtual Machines', path: '/vms' },
+    { key: '/vms', icon: <CloudServerOutlined />, label: 'Testbed', path: '/vms' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
     { key: '/test-tracker', icon: <BarChartOutlined />, label: 'Test Tracker', path: '/test-tracker' },
