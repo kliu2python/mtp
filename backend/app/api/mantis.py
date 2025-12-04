@@ -30,6 +30,7 @@ async def list_mantis_issues(
             sort_by=sort_by,
             sort_order=sort_order,
         )
+        last_updated = mantis_service.get_db_last_modified()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -38,6 +39,7 @@ async def list_mantis_issues(
         "total": total,
         "page": page,
         "page_size": page_size,
+        "last_updated": last_updated,
     }
 
 
