@@ -4,6 +4,7 @@ import {
   Button,
   Card,
   Checkbox,
+  Dropdown,
   Divider,
   Drawer,
   Empty,
@@ -88,6 +89,7 @@ const VMs = () => {
   const [fetchingCloudVersion, setFetchingCloudVersion] = useState(false);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [savingCloudService, setSavingCloudService] = useState(false);
+  const [refreshingTestbed, setRefreshingTestbed] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -98,6 +100,7 @@ const VMs = () => {
   useEffect(() => {
     fetchVMs();
     fetchCloudServices();
+    refreshTestbed();
   }, []);
 
   const fetchVMs = async () => {
@@ -119,6 +122,43 @@ const VMs = () => {
       fetchVMs();
     } catch (error) {
       message.error('Failed to stop VM');
+    }
+  };
+
+  const refreshCloudServiceVersions = async () => {
+    if (!cloudServices.length) return;
+
+    const updatedServices = await Promise.all(
+      cloudServices.map(async (service) => {
+        if (!service.client_ip) return service;
+
+        try {
+          const { data } = await axios.get(`${API_URL}/api/cloud/version`, {
+            params: { client_ip: service.client_ip },
+          });
+
+          const latestVersion = data?.version || service.server_version || service.version;
+
+          return {
+            ...service,
+            server_version: latestVersion,
+            version: latestVersion,
+          };
+        } catch (error) {
+          return service;
+        }
+      })
+    );
+
+    setCloudServices(updatedServices);
+  };
+
+  const refreshTestbed = async () => {
+    try {
+      setRefreshingTestbed(true);
+      await Promise.all([fetchVMs(), refreshCloudServiceVersions()]);
+    } finally {
+      setRefreshingTestbed(false);
     }
   };
 
@@ -365,6 +405,15 @@ const VMs = () => {
   const openCloudModal = () => {
     cloudForm.resetFields();
     setCloudModalOpen(true);
+  };
+
+  const handleAddNewSelection = ({ key }) => {
+    if (key === 'vm') {
+      openCreateModal();
+      return;
+    }
+
+    openCloudModal();
   };
 
   const openEditModal = (vm) => {
@@ -1042,10 +1091,11 @@ const VMs = () => {
       render: (value) => value || <Typography.Text type="secondary">Not provided</Typography.Text>,
     },
     {
-      title: 'Server Version',
+      title: 'Version',
       dataIndex: 'server_version',
       key: 'server_version',
-      render: (value) => value || <Typography.Text type="secondary">Auto-detect pending</Typography.Text>,
+      render: (value, record) =>
+        value || record.version || <Typography.Text type="secondary">Auto-detect pending</Typography.Text>,
     },
     {
       title: 'Actions',
@@ -1101,20 +1151,42 @@ const VMs = () => {
   return (
     <div>
       <Card
-        title={<Typography.Title level={3} style={{ margin: 0 }}>Testbed</Typography.Title>}
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography.Title level={3} style={{ margin: 0 }}>
+              Testbed
+            </Typography.Title>
+            <Space>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={refreshTestbed}
+                loading={refreshingTestbed || loading}
+              >
+                Refresh
+              </Button>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'vm', label: 'Virtual Machine' },
+                    { key: 'cloud', label: 'Cloud Service' },
+                  ],
+                  onClick: handleAddNewSelection,
+                }}
+                placement="bottomRight"
+                trigger={['click']}
+              >
+                <Button type="primary" icon={<PlusOutlined />}>
+                  Add New
+                </Button>
+              </Dropdown>
+            </Space>
+          </div>
+        }
         bodyStyle={{ paddingTop: 12 }}
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography.Title level={4} style={{ margin: 0 }}>VMs</Typography.Title>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={fetchVMs} loading={loading}>
-                Refresh
-              </Button>
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-                Add VM
-              </Button>
-            </Space>
           </div>
           <Input.Search
             placeholder="Search VMs"
@@ -1136,9 +1208,6 @@ const VMs = () => {
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography.Title level={4} style={{ margin: 0 }}>Cloud Services</Typography.Title>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCloudModal}>
-              Add New
-            </Button>
           </div>
           <Table
             dataSource={cloudServices}
