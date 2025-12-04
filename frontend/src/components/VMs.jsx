@@ -27,12 +27,10 @@ import {
   message
 } from 'antd';
 import {
-  BarChartOutlined,
   CodeOutlined,
   DeleteOutlined,
   ExperimentOutlined,
   GlobalOutlined,
-  FileTextOutlined,
   PlusOutlined,
   ReloadOutlined
 } from '@ant-design/icons';
@@ -62,6 +60,7 @@ const VMs = () => {
   const [webDrawerOpen, setWebDrawerOpen] = useState(false);
   const [webLoadError, setWebLoadError] = useState(null);
   const [webAccessUrl, setWebAccessUrl] = useState('');
+  const [webEmbedAllowed, setWebEmbedAllowed] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [sshConnecting, setSshConnecting] = useState(false);
   const [sshError, setSshError] = useState(null);
@@ -104,16 +103,6 @@ const VMs = () => {
     } catch (error) {
       message.error('Failed to fetch VMs');
       setLoading(false);
-    }
-  };
-
-  const startVM = async (vmId) => {
-    try {
-      await axios.post(`${API_URL}/api/vms/${vmId}/start`);
-      message.success('VM started successfully');
-      fetchVMs();
-    } catch (error) {
-      message.error('Failed to start VM');
     }
   };
 
@@ -413,10 +402,10 @@ const VMs = () => {
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
 
-  const normalizeToHttp = (url) => {
+  const normalizeToHttps = (url) => {
     try {
       const parsed = new URL(url);
-      parsed.protocol = 'http:';
+      parsed.protocol = 'https:';
       return parsed.toString();
     } catch (error) {
       // If the URL constructor fails, fall back to the raw value.
@@ -426,14 +415,23 @@ const VMs = () => {
 
   const openWebDrawer = (vm) => {
     const baseUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
-    const resolvedUrl = baseUrl ? normalizeToHttp(baseUrl) : null;
+    const resolvedUrl = baseUrl ? normalizeToHttps(baseUrl) : null;
     if (!resolvedUrl) {
       message.warning('No web access URL configured for this VM');
       return;
     }
 
+    let embeddable = true;
+    try {
+      const parsedUrl = new URL(resolvedUrl);
+      embeddable = parsedUrl.origin === window.location.origin;
+    } catch (error) {
+      embeddable = false;
+    }
+
     setSelectedVm(vm);
     setWebAccessUrl(resolvedUrl);
+    setWebEmbedAllowed(embeddable);
     setWebLoadError(null);
     setWebDrawerOpen(true);
   };
@@ -706,11 +704,7 @@ const VMs = () => {
       key: 'actions',
       render: (_, record) => (
         <Space size="small" wrap>
-          {record.status !== 'running' ? (
-            <Button type="primary" size="small" onClick={() => startVM(record.id)}>
-              Start
-            </Button>
-          ) : (
+          {record.status === 'running' && (
             <Button danger size="small" onClick={() => stopVM(record.id)}>
               Stop
             </Button>
@@ -751,20 +745,6 @@ const VMs = () => {
             onClick={() => openSshModal(record)}
           >
             SSH
-          </Button>
-          <Button
-            size="small"
-            icon={<FileTextOutlined />}
-            onClick={() => openLogsDrawer(record)}
-          >
-            Logs
-          </Button>
-          <Button
-            size="small"
-            icon={<BarChartOutlined />}
-            onClick={() => openMetricsDrawer(record)}
-          >
-            Metrics
           </Button>
           <Button
             size="small"
@@ -1176,6 +1156,7 @@ const VMs = () => {
           setWebDrawerOpen(false);
           setSelectedVm(null);
           setWebAccessUrl('');
+          setWebEmbedAllowed(true);
           setWebLoadError(null);
         }}
         open={webDrawerOpen}
@@ -1217,16 +1198,28 @@ const VMs = () => {
                 }
               />
             )}
-            {webLoadError && <Alert type="error" showIcon message={webLoadError} />}
-            <div style={{ height: 600, border: '1px solid #f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
-              <iframe
-                title="VM Web Access"
-                src={webAccessUrl}
-                style={{ width: '100%', height: '100%', border: 'none' }}
-                onLoad={() => setWebLoadError(null)}
-                onError={() => setWebLoadError('Unable to load the web access page. Check the URL or frame permissions.')}
+            {!webEmbedAllowed && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Embedded preview disabled"
+                description="The target site blocks iframe embedding. Use the 'Open in New Tab' button to access it."
               />
-            </div>
+            )}
+            {webEmbedAllowed && (
+              <div style={{ height: 600, border: '1px solid #f0f0f0', borderRadius: 4, overflow: 'hidden' }}>
+                <iframe
+                  title="VM Web Access"
+                  src={webAccessUrl}
+                  style={{ width: '100%', height: '100%', border: 'none' }}
+                  onLoad={() => setWebLoadError(null)}
+                  onError={() =>
+                    setWebLoadError('Unable to load the web access page. Check the URL or frame permissions.')
+                  }
+                />
+              </div>
+            )}
+            {webLoadError && <Alert type="error" showIcon message={webLoadError} />}
           </Space>
         )}
       </Drawer>
