@@ -413,6 +413,21 @@ const VMs = () => {
     }
   };
 
+  const buildProxiedFortigateUrl = (url) => {
+    if (!url) return null;
+
+    try {
+      const parsed = new URL(url);
+      const proxyBase = (API_URL || '').replace(/\/$/, '');
+      const path = parsed.pathname.replace(/^\/+/, '');
+      const query = parsed.search ?? '';
+
+      return `${proxyBase}/api/fgt/${path}${query}`;
+    } catch (error) {
+      return null;
+    }
+  };
+
   const openWebDrawer = (vm) => {
     const baseUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
     const resolvedUrl = baseUrl ? normalizeToHttps(baseUrl) : null;
@@ -421,16 +436,20 @@ const VMs = () => {
       return;
     }
 
-    let embeddable = true;
-    try {
-      const parsedUrl = new URL(resolvedUrl);
-      embeddable = parsedUrl.origin === window.location.origin;
-    } catch (error) {
-      embeddable = false;
+    const proxiedUrl = buildProxiedFortigateUrl(resolvedUrl);
+
+    let embeddable = Boolean(proxiedUrl);
+    if (!embeddable) {
+      try {
+        const parsedUrl = new URL(resolvedUrl);
+        embeddable = parsedUrl.origin === window.location.origin;
+      } catch (error) {
+        embeddable = false;
+      }
     }
 
     setSelectedVm(vm);
-    setWebAccessUrl(resolvedUrl);
+    setWebAccessUrl(proxiedUrl || resolvedUrl);
     setWebEmbedAllowed(embeddable);
     setWebLoadError(null);
     setWebDrawerOpen(true);

@@ -11,7 +11,21 @@ from typing import List
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import vms, devices, files, webhooks, apks, stf, ai_analysis, auth, saml_auth, device_proxy, jenkins_api, tests
+from app.api import (
+    vms,
+    devices,
+    files,
+    webhooks,
+    apks,
+    stf,
+    ai_analysis,
+    auth,
+    saml_auth,
+    device_proxy,
+    jenkins_api,
+    tests,
+    fortigate_proxy,
+)
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -132,6 +146,7 @@ app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
 app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
+app.include_router(fortigate_proxy.router, prefix="/api", tags=["FortiGate Proxy"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
