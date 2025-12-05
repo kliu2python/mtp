@@ -2,7 +2,7 @@
 Jenkins API endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 from app.core.database import get_db
 from app.services.jenkins_service import jenkins_service
@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _configure_jenkins(db: Session):
+def _configure_jenkins(db: Session, overrides: Optional[Dict[str, str]] = None):
     settings = platform_settings_service.get_settings(db)
+    overrides = overrides or {}
+
     jenkins_service.configure(
-        settings.jenkins_url or "",
-        settings.jenkins_username or "",
-        settings.jenkins_api_token or "",
+        overrides.get("jenkins_url") or settings.jenkins_url or "",
+        overrides.get("username") or settings.jenkins_username or "",
+        overrides.get("api_token") or settings.jenkins_api_token or "",
     )
     return settings
 
@@ -100,7 +102,14 @@ async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger, db: Session = Depe
         Trigger response with job and queue information
     """
     try:
-        _configure_jenkins(db)
+        _configure_jenkins(
+            db,
+            {
+                "jenkins_url": job_trigger.jenkins_url,
+                "username": job_trigger.username,
+                "api_token": job_trigger.api_token,
+            },
+        )
         result = jenkins_service.trigger_job(
             job_name=job_trigger.job_name,
             parameters=job_trigger.parameters

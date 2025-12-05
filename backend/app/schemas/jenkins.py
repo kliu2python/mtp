@@ -8,8 +8,12 @@ from datetime import datetime
 
 class JenkinsJobTrigger(BaseModel):
     """Schema for triggering a Jenkins job"""
+
     job_name: str = Field(..., description="Name of the Jenkins job to trigger")
     parameters: Optional[Dict[str, Any]] = Field(None, description="Optional job parameters")
+    jenkins_url: Optional[str] = Field(None, description="Override Jenkins base URL for this trigger")
+    username: Optional[str] = Field(None, description="Override Jenkins username for this trigger")
+    api_token: Optional[str] = Field(None, description="Override Jenkins API token for this trigger")
 
 
 class JenkinsJobInfo(BaseModel):
@@ -70,5 +74,9 @@ class JenkinsStopBuildResponse(BaseModel):
 
 class JenkinsJobParameter(BaseModel):
     """Schema for job parameters"""
-    message: str
-    has_parameters: bool
+
+    name: str
+    type: Optional[str] = None
+    default: Optional[Any] = None
+    description: Optional[str] = None
+    choices: List[Any] = Field(default_factory=list)

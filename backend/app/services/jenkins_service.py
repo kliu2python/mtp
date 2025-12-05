@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Any
 
 from jenkins import Jenkins
 import logging
+import requests
+from requests.auth import HTTPBasicAuth
 
 from app.core.config import settings
 
@@ -278,7 +280,7 @@ class JenkinsService:
 
     def get_job_parameters(self, job_name: str) -> List[Dict[str, Any]]:
         """
-        Get parameters defined for a job
+        Get detailed parameters defined for a job using Jenkins REST API.
 
         Args:
             job_name: Name of the Jenkins job
@@ -290,26 +292,33 @@ class JenkinsService:
             jenkins = self._get_jenkins_instance()
             job = jenkins.get_job(job_name)
 
-            # Get job configuration
-            config = job.get_config()
-            parameters = []
+            api_url = f"{job.baseurl}/api/json"
+            response = requests.get(
+                api_url,
+                auth=HTTPBasicAuth(self.username, self.api_token),
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
 
-            # This is a simplified version - you might need to parse XML config
-            # to get detailed parameter information
-            if job.has_params():
-                # Get parameter names from the job
-                # Note: This is basic - for full parameter details,
-                # you'd need to parse the job's XML configuration
-                parameters.append({
-                    "message": "This job accepts parameters. Please check Jenkins UI for parameter details.",
-                    "has_parameters": True
-                })
-            else:
-                parameters.append({
-                    "message": "This job does not accept parameters.",
-                    "has_parameters": False
-                })
+            param_property = "hudson.model.ParametersDefinitionProperty"
+            parameters: List[Dict[str, Any]] = []
 
+            for prop in data.get("property", []):
+                if prop.get("_class") == param_property:
+                    for param in prop.get("parameterDefinitions", []):
+                        parameters.append(
+                            {
+                                "name": param.get("name"),
+                                "type": param.get("type") or param.get("_class"),
+                                "default": (param.get("defaultParameterValue") or {}).get("value"),
+                                "description": param.get("description", ""),
+                                "choices": param.get("choices", []),
+                            }
+                        )
+
+            if not parameters:
+                logger.info(f"No parameters defined for job {job_name}")
             return parameters
 
         except Exception as e:
