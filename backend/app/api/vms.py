@@ -1,7 +1,10 @@
 """
-Virtual Machine API endpoints
+Virtual Machine API endpoints for testbed metadata configuration.
+
+These routes are intentionally limited to CRUD operations and do not trigger
+any runtime VM lifecycle actions.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timedelta
@@ -169,104 +172,6 @@ async def delete_vm(vm_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"message": "VM deleted successfully"}
-
-
-@router.post("/{vm_id}/start")
-async def start_vm(vm_id: str, db: Session = Depends(get_db)):
-    """Start VM (create Docker container)"""
-    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    
-    if vm.status == VMStatus.RUNNING:
-        return {"message": "VM already running", "vm": vm.to_dict()}
-    
-    try:
-        # Create and start container
-        container_id = await docker_service.start_vm(vm)
-        
-        vm.docker_container_id = container_id
-        vm.status = VMStatus.RUNNING
-        vm.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(vm)
-        
-        return {"message": "VM started successfully", "vm": vm.to_dict()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start VM: {str(e)}")
-
-
-@router.post("/{vm_id}/stop")
-async def stop_vm(vm_id: str, db: Session = Depends(get_db)):
-    """Stop VM (stop Docker container)"""
-    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    
-    if vm.status == VMStatus.STOPPED:
-        return {"message": "VM already stopped", "vm": vm.to_dict()}
-    
-    try:
-        if vm.docker_container_id:
-            await docker_service.stop_container(vm.docker_container_id)
-        
-        vm.status = VMStatus.STOPPED
-        vm.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(vm)
-        
-        return {"message": "VM stopped successfully", "vm": vm.to_dict()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to stop VM: {str(e)}")
-
-
-@router.get("/{vm_id}/logs")
-async def get_vm_logs(
-    vm_id: str,
-    tail: int = Query(100, ge=1, le=1000),
-    db: Session = Depends(get_db)
-):
-    """Get VM logs"""
-    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    
-    if not vm.docker_container_id:
-        return {"logs": []}
-    
-    try:
-        logs = await docker_service.get_container_logs(vm.docker_container_id, tail=tail)
-        return {"logs": logs}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get logs: {str(e)}")
-
-
-@router.get("/{vm_id}/metrics")
-async def get_vm_metrics(vm_id: str, db: Session = Depends(get_db)):
-    """Get VM resource metrics"""
-    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
-    if not vm:
-        raise HTTPException(status_code=404, detail="VM not found")
-    
-    if not vm.docker_container_id or vm.status != VMStatus.RUNNING:
-        return {
-            "cpu_usage": 0,
-            "memory_usage": 0,
-            "disk_usage": 0
-        }
-    
-    try:
-        metrics = await docker_service.get_container_stats(vm.docker_container_id)
-        
-        # Update VM metrics
-        vm.cpu_usage = metrics.get("cpu_percent", 0)
-        vm.memory_usage = metrics.get("memory_percent", 0)
-        vm.disk_usage = metrics.get("disk_percent", 0)
-        db.commit()
-
-        return metrics
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get metrics: {str(e)}")
 
 
 @router.websocket("/{vm_id}/ssh/ws")
