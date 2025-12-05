@@ -44,6 +44,38 @@ async def list_mantis_issues(
     }
 
 
+@router.get("/all", summary="List all Mantis issues")
+async def list_all_mantis_issues(
+    search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
+    status: str | None = Query(None, description="Filter by status"),
+    priority: str | None = Query(None, description="Filter by priority"),
+    severity: str | None = Query(None, description="Filter by severity"),
+    category: str | None = Query(None, description="Filter by category"),
+    sort_by: str | None = Query(None, description="Column to sort by"),
+    sort_order: str | None = Query("desc", description="asc or desc"),
+):
+    try:
+        issues, total, status_counts = mantis_service.list_all_issues(
+            search=search,
+            status=status,
+            priority=priority,
+            severity=severity,
+            category=category,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
+        last_updated = mantis_service.get_db_last_modified()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return {
+        "issues": issues,
+        "total": total,
+        "last_updated": last_updated,
+        "status_counts": status_counts,
+    }
+
+
 @router.get("/{issue_id}", summary="Get a specific Mantis issue")
 async def get_mantis_issue(issue_id: int):
     try:
