@@ -1,246 +1,161 @@
 """
 Jenkins API endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, status
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Request
 import logging
-from app.core.database import get_db
-from app.services.jenkins_service import jenkins_service
-from app.services.settings_service import platform_settings_service
-from app.schemas.jenkins import (
-    JenkinsJobTrigger,
-    JenkinsJobInfo,
-    JenkinsJobList,
-    JenkinsTriggerResponse,
-    JenkinsBuildStatus,
-    JenkinsBuildConsole,    
-    JenkinsStopBuildResponse,
-    JenkinsJobParameter
-)
-from sqlalchemy.orm import Session
+
+from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService
+from app.services.mongodb import MongoDBAPI
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+runner = jenkins_service
 
 
-def _configure_jenkins(db: Session, overrides: Optional[Dict[str, str]] = None):
-    settings = platform_settings_service.get_settings(db)
-    overrides = overrides or {}
-
-    jenkins_service.configure(
-        overrides.get("jenkins_url") or settings.jenkins_url or "",
-        overrides.get("username") or settings.jenkins_username or "",
-        overrides.get("api_token") or settings.jenkins_api_token or "",
-    )
-    return settings
+def fetch_auth_info_by_job_name(job_name):
+    job_info = MongoDBAPI().get_job_by_name(f"name={job_name}")
+    return job_info.get("documents")[0]
 
 
-@router.get("/jobs", response_model=List[JenkinsJobList])
-async def get_all_jenkins_jobs(db: Session = Depends(get_db)):
+@router.post("/execute/job")
+def ExecuteJobsByName(request: Request):
+    data = request.get_json()
+    parts = data.get('server_ip').split('/')
+    server_ip = f"{parts[0]}//{parts[2]}"
+    try:
+        results = JenkinsService(
+            server_ip,
+            data.get('server_un'),
+            data.get('server_pw')
+        ).execute_job(data)
+    except Exception:
+        return "auth failed", 500
+    return results, 200
+
+
+@router.get("/jobs")
+def ListAllSavedJobs():
+    results = runner.get_all_saved_jobs()
+    return results, 200
+
+
+@router.delete("/jobs/<string:job_name>")
+def DeleteJobByName(job_name):
+    results = runner.delete_saved_jobs(job_name)
+    return results, 200
+
+
+@router.get("/jobs/<string:job_name>")
+def GetOneSavedJob(job_name):
+    results = runner.get_one_saved_job(job_name)
+    return results, 200
+
+
+@router.get("/jobs/build/result")
+def GetJobBuildResultByBuildNumber(request: Request):
+    job_name = request.args.get("job_name")
+    build_num = request.args.get("build_number")
+    job_info = fetch_auth_info_by_job_name(job_name)
+    if not job_info:
+        return f"no job {job_name} found", 500
+    parts = job_info.get('server_ip').split('/')
+    server_ip = f"{parts[0]}//{parts[2]}"
+    job_path = extract_job_path(job_info.get('server_ip'))
+    try:
+        results = JenkinsService(
+            server_ip, job_info.get('server_un'), job_info.get('server_pw')
+        ).fetch_build_res_using_build_num(job_path, build_num, job_name)
+    except Exception:
+        return "auth failed", 500
+    return results, 200
+
+
+@router.post("/jobs/parameters")
+def AuthAndParameterCheck(request: Request):
+    data = request.json
+    parts = data.get('server_ip').split('/')
+    server_ip = f"{parts[0]}//{parts[2]}"
+    try:
+        results = JenkinsService(server_ip,
+                                data.get('server_un'),
+                                data.get('server_pw')
+                                ).fetch_job_structure(data)
+    except Exception:
+        return "auth failed", 500
+
+    return {"results": results}
+
+
+@router.get("/db_jobs")
+def ListAllJobsFromDB():
     """
-    Get all available Jenkins jobs
-
-    Returns:
-        List of Jenkins jobs with basic information
+    Returns a list of all jobs from the MongoDB database using MongoDBAPI.
     """
     try:
-        _configure_jenkins(db)
-        jobs = jenkins_service.get_all_jobs()
-        return jobs
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        # Fetch the jobs from the MongoDB using the MongoDBAPI client
+        jobs = MongoDBAPI().get_all_jobs()
+        return {"results": jobs}
     except Exception as e:
-        logger.error(f"Error getting Jenkins jobs: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get Jenkins jobs: {str(e)}"
-        )
+        return {"error": "Error fetching job structure on DB"}, 500
 
 
-@router.get("/jobs/{job_name}", response_model=JenkinsJobInfo)
-async def get_jenkins_job_info(job_name: str, db: Session = Depends(get_db)):
+@router.get("/groups")
+def ListAllGroups():
     """
-    Get detailed information about a specific Jenkins job
-
-    Args:
-        job_name: Name of the Jenkins job
-
-    Returns:
-        Detailed job information
+    Returns a list of all jobs from the MongoDB database using MongoDBAPI.
     """
     try:
-        _configure_jenkins(db)
-        job_info = jenkins_service.get_job_info(job_name)
-        return job_info
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        # Fetch the jobs from the MongoDB using the MongoDBAPI client
+        jobs = MongoDBAPI().get_all_groups()
+        return {"results": jobs}
     except Exception as e:
-        logger.error(f"Error getting job info for {job_name}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job '{job_name}' not found or error occurred: {str(e)}"
-        )
+        return {"error": "Error fetching job structure on DB"}, 500
 
 
-@router.post("/jobs/trigger", response_model=JenkinsTriggerResponse)
-async def trigger_jenkins_job(job_trigger: JenkinsJobTrigger, db: Session = Depends(get_db)):
-    """
-    Trigger a Jenkins job with optional parameters
-
-    Args:
-        job_trigger: Job name and optional parameters
-
-    Returns:
-        Trigger response with job and queue information
-    """
+@router.post("/run/execute/ftm")
+def ExecuteFTMJenkinsTask(request: Request):
     try:
-        _configure_jenkins(
-            db,
-            {
-                "jenkins_url": job_trigger.jenkins_url,
-                "username": job_trigger.username,
-                "api_token": job_trigger.api_token,
-            },
-        )
-        result = jenkins_service.trigger_job(
-            job_name=job_trigger.job_name,
-            parameters=job_trigger.parameters
-        )
-        return result
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        data = request.json
+        res = runner.execute_run_task(data)
+        return {"results": res}
     except Exception as e:
-        logger.error(f"Error triggering job {job_trigger.job_name}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to trigger job: {str(e)}"
-        )
+        return {"error": "Error fetching job structure on DB"}, 500
 
 
-@router.get("/jobs/{job_name}/builds/{build_number}", response_model=JenkinsBuildStatus)
-async def get_build_status(job_name: str, build_number: int, db: Session = Depends(get_db)):
-    """
-    Get status of a specific build
-
-    Args:
-        job_name: Name of the Jenkins job
-        build_number: Build number
-
-    Returns:
-        Build status information
-    """
+@router.get("/run/ios/ftm")
+def GetFTMIOSTaskRun():
     try:
-        _configure_jenkins(db)
-        build_status = jenkins_service.get_build_status(job_name, build_number)
-        return build_status
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error getting build status for {job_name} #{build_number}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Build not found or error occurred: {str(e)}"
-        )
+        results = MongoDBAPI().get_all_run_results("ftm_ios")
+    except Exception:
+        return "auth failed", 500
+    return results, 200
 
 
-@router.get("/jobs/{job_name}/builds/{build_number}/console", response_model=JenkinsBuildConsole)
-async def get_build_console(job_name: str, build_number: int, db: Session = Depends(get_db)):
-    """
-    Get console output of a specific build
-
-    Args:
-        job_name: Name of the Jenkins job
-        build_number: Build number
-
-    Returns:
-        Console output
-    """
+@router.get("/run/results/ios/ftm")
+def GetFTMIOSTaskRunResults():
     try:
-        _configure_jenkins(db)
-        console_output = jenkins_service.get_build_console_output(job_name, build_number)
-        return {
-            "job_name": job_name,
-            "build_number": build_number,
-            "console_output": console_output
-        }
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error getting console output for {job_name} #{build_number}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Build console not found or error occurred: {str(e)}"
-        )
+        results = runner.fetch_run_details()
+    except Exception:
+        return "auth failed", 500
+    return results, 200
 
 
-@router.post("/jobs/{job_name}/builds/{build_number}/stop", response_model=JenkinsStopBuildResponse)
-async def stop_jenkins_build(job_name: str, build_number: int, db: Session = Depends(get_db)):
-    """
-    Stop a running build
-
-    Args:
-        job_name: Name of the Jenkins job
-        build_number: Build number to stop
-
-    Returns:
-        Stop operation result
-    """
+@router.get("/run/result/ios/ftm")
+def GetFTMIOSTaskRunResult(request: Request):
     try:
-        _configure_jenkins(db)
-        result = jenkins_service.stop_build(job_name, build_number)
-        return result
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error stopping build {job_name} #{build_number}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to stop build: {str(e)}"
-        )
+        job_name = request.args.get("job_name")
+        results = runner.fetch_run_res_using_build_num(job_name)
+    except Exception:
+        return "auth failed", 500
+    return results, 200
 
 
-@router.get("/jobs/{job_name}/parameters", response_model=List[JenkinsJobParameter])
-async def get_job_parameters(job_name: str, db: Session = Depends(get_db)):
-    """
-    Get parameters defined for a job
-
-    Args:
-        job_name: Name of the Jenkins job
-
-    Returns:
-        List of parameter definitions
-    """
+@router.delete("/run/result/ios/ftm/delete")
+def DeleteFTMiOSResult(request: Request):
     try:
-        _configure_jenkins(db)
-        parameters = jenkins_service.get_job_parameters(job_name)
-        return parameters
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-    except Exception as e:
-        logger.error(f"Error getting parameters for job {job_name}: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Job not found or error occurred: {str(e)}"
-        )
+        job_name = request.args.get("job_name")
+        results = runner.delete_run_result(job_name)
+    except Exception:
+        return "auth failed", 500
+    return results, 200
