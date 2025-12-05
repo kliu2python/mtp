@@ -1,17 +1,22 @@
 """
 Device Management API endpoints
 """
+import logging
+
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.device import TestDevice, DeviceStatus, DeviceType
 from app.services.device_manager import device_manager
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class DeviceCreate(BaseModel):
@@ -234,7 +239,94 @@ async def check_device_health(device_id: str, db: Session = Depends(get_db)):
 
 @router.get("/stats/summary")
 async def get_device_stats(db: Session = Depends(get_db)):
-    """Get device statistics"""
+    """Get device statistics from device nodes service"""
+
+    nodes_data = []
+
+    # Try to fetch live device information from the device nodes API
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.DEVICE_NODES_API_URL}/nodes",
+                timeout=10.0
+            )
+            response.raise_for_status()
+            payload = response.json()
+
+            if isinstance(payload, list):
+                nodes_data = payload
+            elif isinstance(payload, dict):
+                nodes_data = payload.get("nodes") or payload.get("data") or []
+                if isinstance(nodes_data, dict):
+                    nodes_data = nodes_data.get("nodes", [])
+            else:
+                nodes_data = []
+    except Exception as exc:
+        logger.error(f"Failed to fetch device nodes stats: {exc}")
+
+    # If we have live data from device nodes, use it to build stats
+    if nodes_data:
+        total = len(nodes_data)
+        available = 0
+        busy = 0
+        offline = 0
+        ios_count = 0
+        android_count = 0
+
+        for node in nodes_data:
+            # Platform detection
+            platform = (
+                node.get("platform")
+                or node.get("os")
+                or node.get("deviceOs")
+                or node.get("osName")
+                or ""
+            ).lower()
+
+            if "ios" in platform:
+                ios_count += 1
+            elif "android" in platform:
+                android_count += 1
+
+            # Status detection
+            status = (node.get("status") or node.get("state") or "").lower()
+            in_use = any([
+                node.get("using"),
+                node.get("inUse"),
+                node.get("in_use"),
+                node.get("owner")
+            ])
+            ready = any([
+                node.get("ready"),
+                node.get("available"),
+                node.get("isReady"),
+                status in ["available", "ready", "online", "idle"]
+            ])
+            present = node.get("present", True)
+
+            if in_use or status in ["busy", "in_use", "reserved", "using"]:
+                busy += 1
+            elif not present or status in ["offline", "disconnected", "error"]:
+                offline += 1
+            elif ready:
+                available += 1
+            else:
+                offline += 1
+
+        return {
+            "total": total,
+            "by_status": {
+                "available": available,
+                "busy": busy,
+                "offline": offline
+            },
+            "by_platform": {
+                "iOS": ios_count,
+                "Android": android_count
+            }
+        }
+
+    # Fallback to database values if live stats are unavailable
     total = db.query(TestDevice).count()
     available = db.query(TestDevice).filter(
         TestDevice.status == DeviceStatus.AVAILABLE
@@ -245,10 +337,10 @@ async def get_device_stats(db: Session = Depends(get_db)):
     offline = db.query(TestDevice).filter(
         TestDevice.status == DeviceStatus.OFFLINE
     ).count()
-    
+
     ios_count = db.query(TestDevice).filter(TestDevice.platform == "iOS").count()
     android_count = db.query(TestDevice).filter(TestDevice.platform == "Android").count()
-    
+
     return {
         "total": total,
         "by_status": {
