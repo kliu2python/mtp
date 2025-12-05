@@ -148,10 +148,11 @@ const TestTracker = () => {
 
   const columns = [
     {
-      title: 'Test Suite',
-      dataIndex: 'test_suite',
-      key: 'test_suite',
-      width: 150,
+      title: 'Testing Product',
+      dataIndex: 'test_product',
+      key: 'test_product',
+      width: 180,
+      render: (_, record) => record.test_product || record.test_suite,
     },
     {
       title: 'Test Case',
@@ -223,6 +224,8 @@ const TestTracker = () => {
       ),
     },
   ];
+
+  const testingProductStats = analytics.test_products || analytics.test_suites || [];
 
   const getSelectedName = () => {
     if (!selectedId) return 'None';
@@ -330,28 +333,28 @@ const TestTracker = () => {
 
                 <Row gutter={16}>
                   <Col span={12}>
-                    <Card title="Test Suites" size="small">
-                      {analytics.test_suites && analytics.test_suites.length > 0 ? (
-                        analytics.test_suites.map((suite, index) => (
+                    <Card title="Testing Products" size="small">
+                      {testingProductStats.length > 0 ? (
+                        testingProductStats.map((product, index) => (
                           <div key={index} style={{ marginBottom: 12 }}>
                             <Space direction="vertical" style={{ width: '100%' }}>
-                              <Text strong>{suite.name}</Text>
+                              <Text strong>{product.name}</Text>
                               <Space>
-                                <Tag color="success">{suite.passed} Passed</Tag>
-                                <Tag color="error">{suite.failed} Failed</Tag>
-                                <Tag>Total: {suite.total}</Tag>
-                                <Text type="secondary">Pass Rate: {suite.pass_rate.toFixed(2)}%</Text>
+                                <Tag color="success">{product.passed} Passed</Tag>
+                                <Tag color="error">{product.failed} Failed</Tag>
+                                <Tag>Total: {product.total}</Tag>
+                                <Text type="secondary">Pass Rate: {product.pass_rate.toFixed(2)}%</Text>
                               </Space>
                               <Progress
-                                percent={suite.pass_rate}
-                                status={suite.pass_rate >= 80 ? 'success' : 'exception'}
+                                percent={product.pass_rate}
+                                status={product.pass_rate >= 80 ? 'success' : 'exception'}
                                 size="small"
                               />
                             </Space>
                           </div>
                         ))
                       ) : (
-                        <Empty description="No test suites" />
+                        <Empty description="No testing products" />
                       )}
                     </Card>
                   </Col>
