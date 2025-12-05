@@ -193,12 +193,14 @@ const VMs = () => {
     setSelectedPlatform(defaultPlatform);
     testForm.setFieldsValue({
       platform: defaultPlatform,
-      test_scope: 'smoke',
+      test_scope: 'functional',
       environment: 'qa',
       test_suite: 'FortiToken_Mobile',
       timeout: 3600,
       docker_tag: 'latest',
-      device_type: 'physical'
+      device_type: 'physical',
+      test_product: 'FortiToken',
+      test_platforms: ['ios17'],
     });
     // Fetch APKs for the default platform
     fetchApksForPlatform(defaultPlatform);
@@ -228,7 +230,11 @@ const VMs = () => {
         await testForm.validateFields(validationFields);
       } else if (currentStep === 1) {
         // Step 2: Test Configuration
-        await testForm.validateFields(['test_scope', 'test_suite', 'environment']);
+        const validationFields = ['test_scope', 'test_suite', 'environment', 'test_product', 'test_platforms'];
+        if (testForm.getFieldValue('environment') === 'custom') {
+          validationFields.push('custom_environment');
+        }
+        await testForm.validateFields(validationFields);
       }
       // If validation passes, move to next step
       setCurrentStep(currentStep + 1);
@@ -243,6 +249,9 @@ const VMs = () => {
       const values = await testForm.validateFields();
       setStartingTest(true);
 
+      const environmentValue =
+        values.environment === 'custom' ? values.custom_environment : values.environment;
+
       const parameters = Object.fromEntries(
         Object.entries({
           platform: values.platform,
@@ -255,15 +264,17 @@ const VMs = () => {
           emulator_version: values.device_type === 'emulator' ? values.emulator_version : undefined,
           apk_id: appSourceType === 'file' ? values.apk_id : undefined,
           app_version: appSourceType === 'version' ? values.app_version : undefined,
+          test_product: values.test_product,
+          test_platforms: values.test_platforms,
           vm_ip: selectedTestVm?.ip_address,
           vm_name: selectedTestVm?.name,
         }).filter(([, value]) => value !== undefined && value !== null && value !== '')
       );
 
       const normalizedEnvironment =
-        typeof values.environment === 'string'
-          ? values.environment.toLowerCase()
-          : values.environment;
+        typeof environmentValue === 'string'
+          ? environmentValue.toLowerCase()
+          : environmentValue;
 
       const payload = {
         environment: normalizedEnvironment,
@@ -1772,6 +1783,30 @@ const VMs = () => {
               />
 
               <Form.Item
+                name="environment"
+                label="Test Environment"
+                rules={[{ required: true, message: 'Please select environment' }]}
+                tooltip="Select where this test will run"
+              >
+                <Radio.Group>
+                  <Radio value="prod">Prod</Radio>
+                  <Radio value="qa">QA</Radio>
+                  <Radio value="custom">Custom</Radio>
+                </Radio.Group>
+              </Form.Item>
+
+              {testForm.getFieldValue('environment') === 'custom' && (
+                <Form.Item
+                  name="custom_environment"
+                  label="Custom Environment"
+                  rules={[{ required: true, message: 'Please enter custom environment' }]}
+                  tooltip="Provide the exact environment identifier when using a custom target"
+                >
+                  <Input placeholder="e.g., staging-us-west" />
+                </Form.Item>
+              )}
+
+              <Form.Item
                 name="test_scope"
                 label="Test Scope"
                 rules={[{ required: true, message: 'Please select test scope' }]}
@@ -1780,11 +1815,10 @@ const VMs = () => {
                 <Select
                   placeholder="Select test scope"
                   options={[
-                    { label: 'Smoke Tests', value: 'smoke' },
-                    { label: 'Regression Tests', value: 'regression' },
-                    { label: 'Integration Tests', value: 'integration' },
-                    { label: 'Critical Tests', value: 'critical' },
-                    { label: 'Release Tests', value: 'release' }
+                    { label: 'Functional Test (more test cases)', value: 'functional' },
+                    { label: 'Integration Test', value: 'integration' },
+                    { label: 'Regression Test', value: 'regression' },
+                    { label: 'Acceptable Test (less test cases)', value: 'acceptable' }
                   ]}
                 />
               </Form.Item>
@@ -1799,17 +1833,35 @@ const VMs = () => {
               </Form.Item>
 
               <Form.Item
-                name="environment"
-                label="Environment"
-                rules={[{ required: true, message: 'Please select environment' }]}
-                tooltip="Select the test environment"
+                name="test_product"
+                label="Testing Product"
+                rules={[{ required: true, message: 'Please select testing product' }]}
+                tooltip="Select the product under test"
               >
                 <Select
-                  placeholder="Select environment"
+                  placeholder="Select testing product"
                   options={[
-                    { label: 'QA Environment', value: 'qa' },
-                    { label: 'Release Environment', value: 'release' },
-                    { label: 'Production Environment', value: 'production' }
+                    { label: 'FortiGate', value: 'FortiGate' },
+                    { label: 'FortiAuthenticator', value: 'FortiAuthenticator' },
+                    { label: 'FortiTokenCloud_FAC', value: 'FortiTokenCloud_FAC' },
+                    { label: 'FortiTokenCloud_FGT', value: 'FortiTokenCloud_FGT' },
+                    { label: 'FortiToken', value: 'FortiToken' },
+                    { label: 'FortiToken Cloud', value: 'FortiToken Cloud' },
+                  ]}
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="test_platforms"
+                label="Test Platforms"
+                rules={[{ required: true, message: 'Please select at least one platform' }]}
+                tooltip="Choose which platform versions to validate"
+              >
+                <Checkbox.Group
+                  options={[
+                    { label: 'iOS 16', value: 'ios16' },
+                    { label: 'iOS 17', value: 'ios17' },
+                    { label: 'iOS 18', value: 'ios18' },
                   ]}
                 />
               </Form.Item>
