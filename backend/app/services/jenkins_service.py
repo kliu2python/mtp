@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 JENKINS_IP = settings.JENKINS_URL
 JENKINS_UN = settings.JENKINS_USERNAME
 JENKINS_PW = settings.JENKINS_API_TOKEN
+JOB_PATH = settings.JOB_PATH
 
 
 def extract_job_path(full_url: str) -> str:
@@ -355,6 +356,7 @@ class JenkinsService:
         try:
             test_env_info = self.mongo_client.fetch_test_env_info(test_env,
                                                                   custom_env)
+            logger.info(f"test env is {test_env_info}")
             threads = []
 
             for platform in test_platforms:

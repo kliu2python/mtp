@@ -139,7 +139,7 @@ const PreFlightSection = ({
       };
 
       try {
-        await axios.post(`${API_URL}/api/v1/jenkins_cloud/run/execute/ftm`, payload);
+        await axios.post(`${API_URL}/api/jenkins/run/execute/ftm`, payload);
         message.success('PreFlight check triggered successfully.');
       } catch (error) {
         // eslint-disable-next-line no-console

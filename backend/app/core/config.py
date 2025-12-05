@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080/job/mobile_test/")
     JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "taas-api")
     JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "118eed0315e68f05695c4db245f358f2d0")
+    JOB_PATH: dict = {
+        "ios17": "mobile_test/FortiToken_Mobile/iOS/iPhone12-ios17/ios17_auto_test",
+        "ios16": "mobile_test/FortiToken_Mobile/iOS/iPhone8-ios16/ios16_auto_test",
+        "ios18": "mobile_test/FortiToken_Mobile/iOS/iPhone11-ios18/ios18_auto_test",
+        "ios15": "mobile_test/FortiToken_Mobile/iOS/iPhone7-ios15/ios15_auto_test"
+    }
 
     # Monitoring
     PROMETHEUS_PORT: int = 9090
