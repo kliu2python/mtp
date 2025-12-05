@@ -10,6 +10,7 @@ import {
   DashboardOutlined,
   FileOutlined,
   MobileOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
 import './App.css';
@@ -21,6 +22,7 @@ import TestTracker from './components/TestTracker';
 import Files from './components/Files';
 import Settings from './components/Settings';
 import Mantis from './components/Mantis';
+import PreFlight from './components/PreFlight';
 import { API_URL } from './constants';
 
 const { Content, Sider } = Layout;
@@ -36,6 +38,7 @@ function MenuContent({ collapsed, settings }) {
     { key: '/test-tracker', icon: <BarChartOutlined />, label: 'Test Tracker', path: '/test-tracker' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
+    { key: '/preflight', icon: <SafetyCertificateOutlined />, label: 'PreFlight', path: '/preflight' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
 
@@ -174,6 +177,7 @@ function App() {
               <Route path="/test-tracker" element={<TestTracker />} />
               <Route path="/files" element={<Files />} />
               <Route path="/mantis" element={<Mantis />} />
+              <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>
