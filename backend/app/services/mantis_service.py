@@ -70,6 +70,7 @@ class MantisService:
         self,
         search: Optional[str],
         status: Optional[str],
+        exclude_statuses: Optional[List[str]],
         priority: Optional[str],
         severity: Optional[str],
         category: Optional[str],
@@ -87,6 +88,11 @@ class MantisService:
         if status:
             conditions.append("LOWER(status) = LOWER(?)")
             params.append(status)
+
+        if exclude_statuses:
+            placeholders = ", ".join("?" for _ in exclude_statuses)
+            conditions.append(f"LOWER(status) NOT IN ({placeholders})")
+            params.extend([value.lower() for value in exclude_statuses])
 
         if priority:
             conditions.append("LOWER(priority) = LOWER(?)")
@@ -132,6 +138,7 @@ class MantisService:
         page_size: int = 20,
         search: Optional[str] = None,
         status: Optional[str] = None,
+        exclude_statuses: Optional[List[str]] = None,
         priority: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
@@ -139,7 +146,14 @@ class MantisService:
         sort_order: Optional[str] = None,
     ) -> Tuple[List[Dict], int, Dict[str, int]]:
         offset = max(page - 1, 0) * page_size
-        where_clause, params = self._build_filters(search, status, priority, severity, category)
+        where_clause, params = self._build_filters(
+            search,
+            status,
+            exclude_statuses,
+            priority,
+            severity,
+            category,
+        )
         select_columns: str
 
         with self._connect() as conn:
@@ -170,13 +184,21 @@ class MantisService:
         self,
         search: Optional[str] = None,
         status: Optional[str] = None,
+        exclude_statuses: Optional[List[str]] = None,
         priority: Optional[str] = None,
         severity: Optional[str] = None,
         category: Optional[str] = None,
         sort_by: Optional[str] = None,
         sort_order: Optional[str] = None,
     ) -> Tuple[List[Dict], int, Dict[str, int]]:
-        where_clause, params = self._build_filters(search, status, priority, severity, category)
+        where_clause, params = self._build_filters(
+            search,
+            status,
+            exclude_statuses,
+            priority,
+            severity,
+            category,
+        )
 
         with self._connect() as conn:
             available_columns = self._get_available_columns(conn)

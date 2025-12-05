@@ -12,6 +12,7 @@ async def list_mantis_issues(
     page_size: int = Query(5, ge=1, le=200, description="Items per page"),
     search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
     status: str | None = Query(None, description="Filter by status"),
+    exclude_statuses: list[str] | None = Query(None, description="Statuses to exclude (case-insensitive)"),
     priority: str | None = Query(None, description="Filter by priority"),
     severity: str | None = Query(None, description="Filter by severity"),
     category: str | None = Query(None, description="Filter by category"),
@@ -24,6 +25,7 @@ async def list_mantis_issues(
             page_size=page_size,
             search=search,
             status=status,
+            exclude_statuses=exclude_statuses,
             priority=priority,
             severity=severity,
             category=category,
@@ -48,6 +50,7 @@ async def list_mantis_issues(
 async def list_all_mantis_issues(
     search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
     status: str | None = Query(None, description="Filter by status"),
+    exclude_statuses: list[str] | None = Query(None, description="Statuses to exclude (case-insensitive)"),
     priority: str | None = Query(None, description="Filter by priority"),
     severity: str | None = Query(None, description="Filter by severity"),
     category: str | None = Query(None, description="Filter by category"),
@@ -58,6 +61,7 @@ async def list_all_mantis_issues(
         issues, total, status_counts = mantis_service.list_all_issues(
             search=search,
             status=status,
+            exclude_statuses=exclude_statuses,
             priority=priority,
             severity=severity,
             category=category,

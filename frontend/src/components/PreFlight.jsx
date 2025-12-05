@@ -281,7 +281,7 @@ const PreFlight = ({ jenkinsUrl }) => {
     try {
       const { data } = await axios.get(`${API_URL}/api/mantis/all`, {
         params: {
-          status: 'resolved',
+          exclude_statuses: ['acknowledged', 'closed'],
           sort_by: 'last_updated',
           sort_order: 'desc',
         },
