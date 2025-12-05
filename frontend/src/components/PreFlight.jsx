@@ -272,36 +272,22 @@ const PreFlight = ({ jenkinsUrl }) => {
   const fetchResolvedIssues = async () => {
     setMantisLoading(true);
     try {
-      const allIssues = [];
-      const pageSize = 200;
-      let page = 1;
-      let total = 0;
+      const { data } = await axios.get(`${API_URL}/api/mantis/all`, {
+        params: {
+          status: 'resolved',
+          sort_by: 'last_updated',
+          sort_order: 'desc',
+        },
+      });
 
-      do {
-        // eslint-disable-next-line no-await-in-loop
-        const { data } = await axios.get(`${API_URL}/api/mantis/`, {
-          params: {
-            status: 'resolved',
-            page_size: pageSize,
-            page,
-            sort_by: 'last_updated',
-            sort_order: 'desc',
-          },
-        });
+      const issues = (data.issues || []).map((issue) => ({
+        label: `#${issue.issue_id || issue.id} ${issue.summary || ''}`.trim(),
+        value: issue.issue_id || issue.id,
+        url: buildMantisLink(issue),
+        summary: issue.summary,
+      }));
 
-        const issues = (data.issues || []).map((issue) => ({
-          label: `#${issue.issue_id || issue.id} ${issue.summary || ''}`.trim(),
-          value: issue.issue_id || issue.id,
-          url: buildMantisLink(issue),
-          summary: issue.summary,
-        }));
-
-        allIssues.push(...issues);
-        total = data.total || 0;
-        page += 1;
-      } while (allIssues.length < total);
-
-      setMantisOptions(allIssues);
+      setMantisOptions(issues);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load resolved Mantis issues', error);

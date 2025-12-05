@@ -114,6 +114,18 @@ class MantisService:
         order = "DESC" if (sort_order or "").lower() == "desc" else "ASC"
         return sort_column, order
 
+    def _normalize_rows(self, rows: List[sqlite3.Row], available_columns: List[str]) -> List[Dict]:
+        missing_columns = set(self.COLUMNS) - set(available_columns)
+
+        normalized_rows: List[Dict] = []
+        for row in rows:
+            row_dict = dict(row)
+            for column in missing_columns:
+                row_dict.setdefault(column, None)
+            normalized_rows.append(row_dict)
+
+        return normalized_rows
+
     def list_issues(
         self,
         page: int = 1,
@@ -150,17 +162,42 @@ class MantisService:
                 params,
             ).fetchall()
 
-        missing_columns = set(self.COLUMNS) - set(available_columns)
+        normalized_counts = {row["status"]: row["count"] for row in status_counts}
 
-        def _normalize_row(row: sqlite3.Row) -> Dict:
-            row_dict = dict(row)
-            for column in missing_columns:
-                row_dict.setdefault(column, None)
-            return row_dict
+        return self._normalize_rows(rows, available_columns), total, normalized_counts
+
+    def list_all_issues(
+        self,
+        search: Optional[str] = None,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        severity: Optional[str] = None,
+        category: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = None,
+    ) -> Tuple[List[Dict], int, Dict[str, int]]:
+        where_clause, params = self._build_filters(search, status, priority, severity, category)
+
+        with self._connect() as conn:
+            available_columns = self._get_available_columns(conn)
+            sort_column, order = self._validate_sort(sort_by, sort_order, available_columns)
+            select_columns = ", ".join(available_columns)
+
+            base_query = f"FROM {self.TABLE_NAME}{where_clause}"
+            results_query = f"SELECT {select_columns} {base_query} ORDER BY {sort_column} {order}"
+            total_query = f"SELECT COUNT(*) {base_query}"
+
+            cursor = conn.cursor()
+            total = cursor.execute(total_query, params).fetchone()[0]
+            rows = cursor.execute(results_query, params).fetchall()
+            status_counts = cursor.execute(
+                f"SELECT LOWER(status) as status, COUNT(*) as count {base_query} GROUP BY LOWER(status)",
+                params,
+            ).fetchall()
 
         normalized_counts = {row["status"]: row["count"] for row in status_counts}
 
-        return [_normalize_row(row) for row in rows], total, normalized_counts
+        return self._normalize_rows(rows, available_columns), total, normalized_counts
 
     def get_issue(self, issue_id: int) -> Optional[Dict]:
         with self._connect() as conn:
