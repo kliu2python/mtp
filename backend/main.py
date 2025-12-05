@@ -23,7 +23,6 @@ from app.api import (
     saml_auth,
     device_proxy,
     jenkins_api,
-    tests,
     settings_api,
     mantis,
     cloud,
@@ -150,7 +149,6 @@ app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
-app.include_router(tests.router, prefix="/api/tests", tags=["Tests"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
 

@@ -13,11 +13,10 @@ from app.schemas.jenkins import (
     JenkinsJobList,
     JenkinsTriggerResponse,
     JenkinsBuildStatus,
-    JenkinsBuildConsole,
+    JenkinsBuildConsole,    
     JenkinsStopBuildResponse,
     JenkinsJobParameter
 )
-from fastapi import Depends
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)

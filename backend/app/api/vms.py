@@ -14,7 +14,6 @@ from starlette.websockets import WebSocketState
 from app.core.database import get_db
 from app.models.vm import VirtualMachine, VMStatus, VMPlatform, TestRecord
 from app.models.cloud_service import CloudService
-from app.services.docker_service import docker_service
 from pydantic import BaseModel
 from app.services.ssh_session import (
     SSHSession,
@@ -165,13 +164,6 @@ async def delete_vm(vm_id: str, db: Session = Depends(get_db)):
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    
-    # Stop container if running
-    if vm.docker_container_id:
-        try:
-            await docker_service.stop_container(vm.docker_container_id)
-        except:
-            pass
     
     db.delete(vm)
     db.commit()
