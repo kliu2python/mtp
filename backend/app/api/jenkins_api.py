@@ -132,6 +132,22 @@ def GetFTMIOSTaskRun():
     return results, 200
 
 
+@router.get("/run/acceptable-tests")
+def GetAcceptableTestRecords():
+    """Return acceptable-scope test records persisted in MongoDB."""
+    try:
+        records = MongoDBAPI().get_acceptable_test_records()
+        sorted_records = sorted(
+            records,
+            key=lambda item: item.get("updated_at") or item.get("started_at") or "",
+            reverse=True,
+        )
+        return {"results": sorted_records}
+    except Exception as exc:
+        logger.error("Failed to fetch acceptable test records: %s", exc)
+        return {"error": "Error fetching acceptable test records from DB"}, 500
+
+
 @router.get("/run/results/ios/ftm")
 def GetFTMIOSTaskRunResults():
     try:

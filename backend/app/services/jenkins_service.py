@@ -391,6 +391,14 @@ class JenkinsService:
                                 insert_body,
                                 collection="runner"
                             )
+                            if params.get("test_scope") == "acceptable":
+                                acceptable_record = {
+                                    **insert_body,
+                                    "test_scope": "acceptable",
+                                }
+                                self.mongo_client.insert_acceptable_test_record(
+                                    acceptable_record
+                                )
                             logger.info(f'saved the docs {job_info}')
                             break
                         sleep(2)

@@ -40,6 +40,22 @@ class MongoDBAPI:
             logger.error(f"Error inserting document into MongoDB: {e}")
             return None
 
+    def insert_acceptable_test_record(self, record: dict):
+        """Persist an acceptable test record into MongoDB."""
+        return self.insert_document(record, collection="acceptable_tests")
+
+    def get_acceptable_test_records(self):
+        """Fetch acceptable test records from MongoDB."""
+        url = self._url(f"find?db={self.db}&collection=acceptable_tests")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("documents", [])
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching acceptable test records from MongoDB: {e}")
+            return []
+
     def get_res_of_build_number(self, job_name, build_num):
         """Fetch all job names from the MongoDB collection."""
         filter_json = json.dumps(f"name={job_name}")

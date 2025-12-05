@@ -49,6 +49,7 @@ const PreFlightSection = ({
   jenkinsUrl,
   pageSize,
   onPageSizeChange,
+  recordLoading,
 }) => {
   const [form] = Form.useForm();
   const [fileList, setFileList] = useState([]);
@@ -100,14 +101,18 @@ const PreFlightSection = ({
         key: 'actions',
         width: 160,
         render: (_, record) => (
-          <Button
-            type="link"
-            icon={<CloudDownloadOutlined />}
-            href={record.downloadUrl}
-            download={record.fileName}
-          >
-            Download App
-          </Button>
+          record.downloadUrl ? (
+            <Button
+              type="link"
+              icon={<CloudDownloadOutlined />}
+              href={record.downloadUrl}
+              download={record.fileName}
+            >
+              Download App
+            </Button>
+          ) : (
+            <Text type="secondary">No download available</Text>
+          )
         ),
       },
     ],
@@ -251,6 +256,7 @@ const PreFlightSection = ({
             dataSource={entries}
             columns={columns}
             rowKey="id"
+            loading={recordLoading}
             pagination={{
               ...defaultPagination,
               pageSize,
@@ -268,6 +274,7 @@ const PreFlight = ({ jenkinsUrl }) => {
   const [mantisLoading, setMantisLoading] = useState(false);
   const [entries, setEntries] = useState({ ios: [], android: [] });
   const [pageSizes, setPageSizes] = useState({ ios: 5, android: 5 });
+  const [recordLoading, setRecordLoading] = useState(false);
 
   const fetchResolvedIssues = async () => {
     setMantisLoading(true);
@@ -311,8 +318,67 @@ const PreFlight = ({ jenkinsUrl }) => {
     }
   };
 
+  const fetchAcceptableRecords = async () => {
+    setRecordLoading(true);
+    try {
+      const { data } = await axios.get(`${API_URL}/api/jenkins/run/acceptable-tests`);
+      const records = data?.results || data || [];
+
+      const normalized = records.reduce(
+        (acc, record) => {
+          const params = record.build_parameters || {};
+          const platformKey = (record.platform || '').toLowerCase().includes('ios') ? 'ios' : 'android';
+          const mantisIds = params.mantis_ids || [];
+          const mantisEntries = Array.isArray(mantisIds)
+            ? mantisIds.map((id) => ({
+                value: id,
+                label: `#${id}`,
+                url: buildMantisLink({ issue_id: id }),
+              }))
+            : [];
+
+          const entry = {
+            id: record._id || record.name || `${platformKey}-${record.build_url || Date.now()}`,
+            fileName:
+              params.ftm_ipa_version ||
+              params.ftm_apk_version ||
+              params.ftm_ipa ||
+              params.ftm_apk ||
+              params.ftm_build_version ||
+              params.ftm_build ||
+              record.name ||
+              'N/A',
+            buildNumber:
+              params.build_number ||
+              params.buildNumber ||
+              params.build ||
+              params.build_num ||
+              record.started_at ||
+              'N/A',
+            mantis: mantisEntries,
+            downloadUrl: params.download_url || params.app_download_url,
+            jenkinsUrl: record.build_url,
+          };
+
+          acc[platformKey] = [...acc[platformKey], entry];
+          return acc;
+        },
+        { ios: [], android: [] },
+      );
+
+      setEntries(normalized);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load acceptable test records', error);
+      message.error('Unable to load previous acceptable test records.');
+    } finally {
+      setRecordLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchResolvedIssues();
+    fetchAcceptableRecords();
   }, []);
 
   const handleAddEntry = (platform, payload) => {
@@ -350,6 +416,7 @@ const PreFlight = ({ jenkinsUrl }) => {
           jenkinsUrl={jenkinsUrl}
           pageSize={pageSizes.ios}
           onPageSizeChange={(size) => setPageSizes((prev) => ({ ...prev, ios: size }))}
+          recordLoading={recordLoading}
         />
       ),
     },
@@ -374,6 +441,7 @@ const PreFlight = ({ jenkinsUrl }) => {
           jenkinsUrl={jenkinsUrl}
           pageSize={pageSizes.android}
           onPageSizeChange={(size) => setPageSizes((prev) => ({ ...prev, android: size }))}
+          recordLoading={recordLoading}
         />
       ),
     },
