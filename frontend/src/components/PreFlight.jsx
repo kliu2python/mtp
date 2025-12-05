@@ -3,8 +3,10 @@ import {
   Alert,
   Button,
   Card,
+  Col,
   Form,
   Input,
+  Row,
   Select,
   Space,
   Table,
@@ -23,9 +25,9 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
-import { API_URL } from '../constants';
+import { API_URL, JENKINS_CLOUD_API_URL } from '../constants';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const buildMantisLink = (issue) => issue?.url || `${API_URL}/mantis/view.php?id=${issue?.issue_id || issue?.id}`;
 
@@ -37,6 +39,7 @@ const defaultPagination = {
 
 const PreFlightSection = ({
   platform,
+  platformKey,
   accent,
   fileAccept,
   entries,
@@ -49,6 +52,7 @@ const PreFlightSection = ({
 }) => {
   const [form] = Form.useForm();
   const [fileList, setFileList] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   const columns = useMemo(
     () => [
@@ -110,7 +114,7 @@ const PreFlightSection = ({
     [jenkinsUrl],
   );
 
-  const handleSubmit = (values) => {
+  const handleSubmit = async (values) => {
     if (fileList.length === 0) {
       message.error('Please upload the application file before submitting.');
       return;
@@ -122,34 +126,65 @@ const PreFlightSection = ({
 
     const downloadUrl = URL.createObjectURL(file);
 
-    onAddEntry({
-      fileName: primaryFile.name,
-      buildNumber: values.buildNumber,
-      mantis: selectedIssues.map((issue) => ({ ...issue, url: buildMantisLink(issue) })),
-      downloadUrl,
-      jenkinsUrl,
-    });
+    try {
+      setSubmitting(true);
 
-    message.success(`${platform} entry added to Acceptable Tests.`);
-    form.resetFields();
-    setFileList([]);
+      onAddEntry({
+        fileName: primaryFile.name,
+        buildNumber: values.buildNumber,
+        mantis: selectedIssues.map((issue) => ({ ...issue, url: buildMantisLink(issue) })),
+        downloadUrl,
+        jenkinsUrl,
+      });
+
+      if (jenkinsUrl) {
+        const payload = {
+          environment: 'production',
+          platforms: [platformKey],
+          project: platformKey === 'ios' ? 'ftm_ios' : 'ftm_android',
+          parameters: {
+            build_number: values.buildNumber,
+            artifact_name: file.name,
+          },
+        };
+
+        try {
+          await axios.post(`${JENKINS_CLOUD_API_URL}/run/execute/ftm`, payload);
+          message.success('Jenkins job triggered for acceptable test.');
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error('Failed to trigger Jenkins job', error);
+          const errorMsg = error?.response?.data?.error || error?.response?.data?.detail;
+          message.warning(errorMsg || 'Added to list, but Jenkins trigger failed.');
+        }
+      }
+
+      message.success(`${platform} entry added to Acceptable Tests.`);
+      form.resetFields();
+      setFileList([]);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card
-        title={
-          <Space>
-            <UploadOutlined style={{ color: accent }} />
-            <span>Submit {platform} Build for Acceptable Test</span>
-          </Space>
-        }
-        extra={
-          <Button type="text" icon={<ReloadOutlined />} onClick={() => form.resetFields()}>
-            Reset
-          </Button>
-        }
-      >
+    <Row gutter={[16, 16]} align="top">
+      <Col xs={24} lg={9}>
+        <Card
+          size="small"
+          title={
+            <Space>
+              <UploadOutlined style={{ color: accent }} />
+              <Text strong style={{ fontSize: 14 }}>Submit {platform} Build for Acceptable Test</Text>
+            </Space>
+          }
+          extra={
+            <Button type="text" icon={<ReloadOutlined />} onClick={() => form.resetFields()}>
+              Reset
+            </Button>
+          }
+          bodyStyle={{ padding: 16 }}
+        >
         <Form layout="vertical" form={form} onFinish={handleSubmit}>
           <Form.Item
             name="appFile"
@@ -199,28 +234,34 @@ const PreFlightSection = ({
             </Button>
           </Form.Item>
         </Form>
-      </Card>
+        </Card>
+      </Col>
 
-      <Card
-        title={
-          <Space>
-            <LinkOutlined />
-            <span>{platform} Acceptable Tests</span>
-          </Space>
-        }
-      >
-        <Table
-          dataSource={entries}
-          columns={columns}
-          rowKey="id"
-          pagination={{
-            ...defaultPagination,
-            pageSize,
-            onShowSizeChange: (_, size) => onPageSizeChange(size),
-          }}
-        />
-      </Card>
-    </Space>
+      <Col xs={24} lg={15}>
+        <Card
+          size="small"
+          title={
+            <Space>
+              <LinkOutlined />
+              <Text strong style={{ fontSize: 14 }}>{platform} Acceptable Tests</Text>
+            </Space>
+          }
+          bodyStyle={{ padding: 12 }}
+        >
+          <Table
+            size="small"
+            dataSource={entries}
+            columns={columns}
+            rowKey="id"
+            pagination={{
+              ...defaultPagination,
+              pageSize,
+              onShowSizeChange: (_, size) => onPageSizeChange(size),
+            }}
+          />
+        </Card>
+      </Col>
+    </Row>
   );
 };
 
@@ -289,6 +330,7 @@ const PreFlight = ({ jenkinsUrl }) => {
       children: (
         <PreFlightSection
           platform="FTM iOS"
+          platformKey="ios"
           accent="#1f7ae0"
           fileAccept=".ipa"
           mantisOptions={mantisOptions}
@@ -312,6 +354,7 @@ const PreFlight = ({ jenkinsUrl }) => {
       children: (
         <PreFlightSection
           platform="FTM Android"
+          platformKey="android"
           accent="#52c41a"
           fileAccept=".apk"
           mantisOptions={mantisOptions}
@@ -327,14 +370,14 @@ const PreFlight = ({ jenkinsUrl }) => {
   ];
 
   return (
-    <Space direction="vertical" size={20} style={{ width: '100%' }}>
+    <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <div>
-        <Title level={3} style={{ marginBottom: 4 }}>
+        <Title level={4} style={{ marginBottom: 2, fontWeight: 600 }}>
           PreFlight Acceptable Test
         </Title>
-        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+        <Text type="secondary" style={{ marginBottom: 0, fontSize: 13, display: 'block' }}>
           Prepare builds for QA by uploading platform binaries, tagging fixed Mantis issues, and tracking acceptable tests in one place.
-        </Paragraph>
+        </Text>
       </div>
 
       {!jenkinsUrl && (
