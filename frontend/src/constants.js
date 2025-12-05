@@ -32,8 +32,7 @@ console.log(API_URL)
 export const DEVICE_NODES_API_BASE_URL = `${API_URL}/api/device/nodes/proxy`;
 
 const getJenkinsCloudApiUrl = () => {
-  const raw = import.meta.env.VITE_JENKINS_CLOUD_API_URL ||
-    'http://10.160.24.88:31224/api/v1/jenkins_cloud';
+  const raw = import.meta.env.VITE_JENKINS_CLOUD_API_URL || `${API_URL}/api/jenkins`;
 
   const hasExplicitProtocol = /^https?:\/\//i.test(raw);
 

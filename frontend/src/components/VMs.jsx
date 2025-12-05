@@ -273,6 +273,14 @@ const VMs = () => {
           save_as_template: values.save_as_template || false,
           template_name: values.save_as_template ? values.template_name : undefined,
         },
+        jenkins: Object.fromEntries(
+          Object.entries({
+            url: values.jenkins_url,
+            username: values.jenkins_username,
+            api_token: values.jenkins_api_token,
+            job_name: values.jenkins_job_name,
+          }).filter(([, value]) => value)
+        ),
         project: values.platform === 'ios' ? 'ftm_ios' : 'ftm_android',
       };
 
@@ -1519,41 +1527,41 @@ const VMs = () => {
       </Drawer>
 
       <Modal
-        title={
-          testModalOpen && selectedTestVm
-            ? `Configure Auto Test - ${selectedTestVm.name} (Step ${currentStep + 1}/3)`
-            : 'Configure Auto Test'
-        }
+          title={
+            testModalOpen && selectedTestVm
+              ? `Configure Auto Test - ${selectedTestVm.name} (Step ${currentStep + 1}/4)`
+              : 'Configure Auto Test'
+          }
         open={testModalOpen}
         onCancel={() => {
           setTestModalOpen(false);
           testForm.resetFields();
           setCurrentStep(0);
         }}
-        footer={[
-          currentStep > 0 && (
-            <Button key="back" onClick={() => setCurrentStep(currentStep - 1)}>
-              Previous
+          footer={[
+            currentStep > 0 && (
+              <Button key="back" onClick={() => setCurrentStep(currentStep - 1)}>
+                Previous
+              </Button>
+            ),
+            currentStep < 3 && (
+              <Button key="next" type="primary" onClick={handleNextStep}>
+                Next
+              </Button>
+            ),
+            currentStep === 3 && (
+              <Button key="submit" type="primary" onClick={runAutoTest} loading={startingTest}>
+                Start Test
+              </Button>
+            ),
+            <Button key="cancel" onClick={() => {
+              setTestModalOpen(false);
+              testForm.resetFields();
+              setCurrentStep(0);
+            }}>
+              Cancel
             </Button>
-          ),
-          currentStep < 2 && (
-            <Button key="next" type="primary" onClick={handleNextStep}>
-              Next
-            </Button>
-          ),
-          currentStep === 2 && (
-            <Button key="submit" type="primary" onClick={runAutoTest} loading={startingTest}>
-              Start Test
-            </Button>
-          ),
-          <Button key="cancel" onClick={() => {
-            setTestModalOpen(false);
-            testForm.resetFields();
-            setCurrentStep(0);
-          }}>
-            Cancel
-          </Button>
-        ]}
+          ]}
         width={800}
       >
         <Form form={testForm} layout="vertical">
@@ -1874,6 +1882,54 @@ const VMs = () => {
                 loading={loadingTemplates}
                 size="small"
               />
+            </>
+          )}
+
+          {currentStep === 3 && (
+            <>
+              <Alert
+                type="info"
+                message="Step 4: Jenkins Connection"
+                description="Provide Jenkins server details to authenticate and start the job."
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+
+              <Form.Item
+                name="jenkins_url"
+                label="Jenkins URL"
+                rules={[{ required: true, message: 'Please enter the Jenkins URL' }]}
+                tooltip="Base URL of the Jenkins instance that will run this job"
+              >
+                <Input placeholder="https://jenkins.example.com" />
+              </Form.Item>
+
+              <Form.Item
+                name="jenkins_username"
+                label="Jenkins Username"
+                rules={[{ required: true, message: 'Please enter the Jenkins username' }]}
+                tooltip="User with permissions to trigger the job"
+              >
+                <Input placeholder="jenkins-user" autoComplete="username" />
+              </Form.Item>
+
+              <Form.Item
+                name="jenkins_api_token"
+                label="Jenkins API Token"
+                rules={[{ required: true, message: 'Please enter the Jenkins API token' }]}
+                tooltip="API token for the Jenkins user"
+              >
+                <Input.Password placeholder="API token" autoComplete="current-password" />
+              </Form.Item>
+
+              <Form.Item
+                name="jenkins_job_name"
+                label="Jenkins Job Name"
+                rules={[{ required: true, message: 'Please enter the Jenkins job name' }]}
+                tooltip="Exact job path or name to trigger"
+              >
+                <Input placeholder="folder/job-name" />
+              </Form.Item>
             </>
           )}
         </Form>
