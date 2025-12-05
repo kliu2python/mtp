@@ -21,6 +21,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
   message
 } from 'antd';
 import {
@@ -29,7 +30,8 @@ import {
   ExperimentOutlined,
   GlobalOutlined,
   PlusOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  UploadOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { Terminal } from 'xterm';
@@ -90,12 +92,32 @@ const VMs = () => {
   const [cloudLoading, setCloudLoading] = useState(false);
   const [savingCloudService, setSavingCloudService] = useState(false);
   const [refreshingTestbed, setRefreshingTestbed] = useState(false);
+  const [appUploadLoading, setAppUploadLoading] = useState(false);
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
-  const [runPreviousForm] = Form.useForm();
   const [previousTestConfig, setPreviousTestConfig] = useState(null);
   const [loadingPreviousConfig, setLoadingPreviousConfig] = useState(false);
+
+  const resolveTestingProductOptions = (testbedPlatform) => {
+    if (testbedPlatform === 'FortiGate') {
+      return [
+        { label: 'FortiGate', value: 'FortiGate' },
+        { label: 'FortiTokenCloud_FGT', value: 'FortiTokenCloud_FGT' },
+      ];
+    }
+
+    if (testbedPlatform === 'FortiAuthenticator') {
+      return [
+        { label: 'FortiAuthenticator', value: 'FortiAuthenticator' },
+        { label: 'FortiTokenCloud_FGT', value: 'FortiTokenCloud_FGT' },
+      ];
+    }
+
+    return [
+      { label: 'FortiTokenCloud_FGT', value: 'FortiTokenCloud_FGT' },
+    ];
+  };
 
   useEffect(() => {
     fetchVMs();
@@ -182,6 +204,36 @@ const VMs = () => {
     }
   };
 
+  const handleAppFileUpload = async ({ file, onSuccess, onError }) => {
+    if (!selectedPlatform) {
+      message.warning('Please select a platform before uploading an app file.');
+      onError?.();
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('files', file);
+
+    setAppUploadLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/files/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      message.success('App file uploaded successfully');
+      await fetchApksForPlatform(selectedPlatform);
+      testForm.setFieldsValue({ apk_id: file.name });
+      onSuccess?.();
+    } catch (error) {
+      message.error('Failed to upload app file');
+      onError?.(error);
+    } finally {
+      setAppUploadLoading(false);
+    }
+  };
+
   const openTestModal = (vm) => {
     setSelectedTestVm(vm);
     testForm.resetFields();
@@ -190,17 +242,16 @@ const VMs = () => {
     setDeviceType('physical');
     // Set default values based on VM
     const defaultPlatform = vm.platform === 'FortiGate' ? 'ios' : 'android';
+    const testingProductOptions = resolveTestingProductOptions(vm.platform);
+    const defaultTestingProduct = testingProductOptions[0]?.value;
     setSelectedPlatform(defaultPlatform);
     testForm.setFieldsValue({
       platform: defaultPlatform,
       test_scope: 'functional',
       environment: 'qa',
-      test_suite: 'FortiToken_Mobile',
       timeout: 3600,
-      docker_tag: 'latest',
       device_type: 'physical',
-      test_product: 'FortiToken',
-      test_platforms: ['ios17'],
+      test_product: defaultTestingProduct,
     });
     // Fetch APKs for the default platform
     fetchApksForPlatform(defaultPlatform);
@@ -230,7 +281,7 @@ const VMs = () => {
         await testForm.validateFields(validationFields);
       } else if (currentStep === 1) {
         // Step 2: Test Configuration
-        const validationFields = ['test_scope', 'test_suite', 'environment', 'test_product', 'test_platforms'];
+        const validationFields = ['test_scope', 'environment', 'test_product'];
         if (testForm.getFieldValue('environment') === 'custom') {
           validationFields.push('custom_environment');
         }
@@ -252,12 +303,13 @@ const VMs = () => {
       const environmentValue =
         values.environment === 'custom' ? values.custom_environment : values.environment;
 
+      const selectedTestSuite = values.test_product;
+
       const parameters = Object.fromEntries(
         Object.entries({
           platform: values.platform,
           test_scope: values.test_scope,
-          test_suite: values.test_suite,
-          docker_tag: values.docker_tag,
+          test_suite: selectedTestSuite,
           timeout: values.timeout,
           device_type: values.device_type,
           device_id: values.device_type === 'physical' ? values.device_id : undefined,
@@ -265,7 +317,6 @@ const VMs = () => {
           apk_id: appSourceType === 'file' ? values.apk_id : undefined,
           app_version: appSourceType === 'version' ? values.app_version : undefined,
           test_product: values.test_product,
-          test_platforms: values.test_platforms,
           vm_ip: selectedTestVm?.ip_address,
           vm_name: selectedTestVm?.name,
         }).filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -284,14 +335,6 @@ const VMs = () => {
           save_as_template: values.save_as_template || false,
           template_name: values.save_as_template ? values.template_name : undefined,
         },
-        jenkins: Object.fromEntries(
-          Object.entries({
-            url: values.jenkins_url,
-            username: values.jenkins_username,
-            api_token: values.jenkins_api_token,
-            job_name: values.jenkins_job_name,
-          }).filter(([, value]) => value)
-        ),
         project: values.platform === 'ios' ? 'ftm_ios' : 'ftm_android',
       };
 
@@ -359,12 +402,6 @@ const VMs = () => {
     try {
       const response = await axios.get(`${API_URL}/api/tests/previous/${vm.id}`);
       setPreviousTestConfig(response.data);
-
-      // Pre-fill the form with the current docker tag
-      const currentTag = response.data.config?.environment?.docker_tag || 'latest';
-      runPreviousForm.setFieldsValue({
-        docker_tag: currentTag
-      });
     } catch (error) {
       message.error(error?.response?.data?.detail || 'No previous tests found for this VM');
       setRunPreviousModalOpen(false);
@@ -375,12 +412,11 @@ const VMs = () => {
 
   const runPreviousTest = async () => {
     try {
-      const values = await runPreviousForm.validateFields();
       setStartingTest(true);
 
       const response = await axios.post(
         `${API_URL}/api/tests/rerun/${previousTestConfig.task_id}`,
-        { docker_tag: values.docker_tag }
+        {}
       );
 
       if (response.data.task_id) {
@@ -390,7 +426,6 @@ const VMs = () => {
         startTestStatusPolling(response.data.task_id);
 
         setRunPreviousModalOpen(false);
-        runPreviousForm.resetFields();
         setPreviousTestConfig(null);
       }
     } catch (error) {
@@ -877,6 +912,9 @@ const VMs = () => {
     apk,
   }));
 
+  const testingProductOptions = resolveTestingProductOptions(selectedTestVm?.platform);
+  const uploadAccept = selectedPlatform === 'ios' ? '.ipa' : selectedPlatform === 'android' ? '.apk' : '.apk,.ipa';
+
   const emulatorVersionOptions = [10, 11, 12, 13, 14, 15].map((version) => ({
     label: `Android ${version}`,
     value: `Android ${version}`,
@@ -1030,20 +1068,15 @@ const VMs = () => {
       key: 'test_scope',
     },
     {
-      title: 'Test Suite',
-      dataIndex: 'test_suite',
-      key: 'test_suite',
+      title: 'Testing Product',
+      dataIndex: 'test_product',
+      key: 'test_product',
+      render: (value, record) => value || record.test_suite || 'N/A',
     },
     {
       title: 'Environment',
       dataIndex: 'environment',
       key: 'environment',
-    },
-    {
-      title: 'Docker Tag',
-      dataIndex: ['docker_config', 'tag'],
-      key: 'docker_tag',
-      render: (value) => value || 'latest',
     },
     {
       title: 'Actions',
@@ -1054,9 +1087,15 @@ const VMs = () => {
             size="small"
             type="primary"
             onClick={() => {
+              const templateOptions = resolveTestingProductOptions(selectedTestVm?.platform || record.platform);
+              const templateProduct = record.test_product || record.test_suite;
+              const normalizedProduct =
+                templateOptions.find((option) => option.value === templateProduct)?.value
+                || templateOptions[0]?.value;
+
               testForm.setFieldsValue({
                 ...record,
-                docker_tag: record.docker_config?.tag || 'latest',
+                test_product: normalizedProduct,
               });
               setAppSourceType(record.app_version ? 'version' : 'file');
               setSelectedPlatform(record.platform);
@@ -1540,7 +1579,7 @@ const VMs = () => {
       <Modal
           title={
             testModalOpen && selectedTestVm
-              ? `Configure Auto Test - ${selectedTestVm.name} (Step ${currentStep + 1}/4)`
+              ? `Configure Auto Test - ${selectedTestVm.name} (Step ${currentStep + 1}/3)`
               : 'Configure Auto Test'
           }
         open={testModalOpen}
@@ -1555,12 +1594,12 @@ const VMs = () => {
                 Previous
               </Button>
             ),
-            currentStep < 3 && (
+            currentStep < 2 && (
               <Button key="next" type="primary" onClick={handleNextStep}>
                 Next
               </Button>
             ),
-            currentStep === 3 && (
+            currentStep === 2 && (
               <Button key="submit" type="primary" onClick={runAutoTest} loading={startingTest}>
                 Start Test
               </Button>
@@ -1711,37 +1750,59 @@ const VMs = () => {
                   name="apk_id"
                   label="App File"
                   rules={[{ required: true, message: 'Please select an app file' }]}
-                  tooltip="Select a specific app version from uploaded files"
+                  tooltip="Select a specific app version from uploaded files or upload a new one"
                 >
-                  <Select
-                    placeholder="Select app file"
-                    loading={loadingApks}
-                    disabled={!selectedPlatform}
-                    options={appFileOptions}
-                    optionRender={(option) => {
-                      const apk = option?.data?.apk || option?.apk;
-                      return (
-                        <Space direction="vertical" size={0}>
-                          <Typography.Text strong>{option.value}</Typography.Text>
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            {[apk?.version_name ? `v${apk.version_name}` : null, apk?.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk?.file_size)}`]
-                              .filter(Boolean)
-                              .join(' • ')}
-                          </Typography.Text>
-                          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                            Uploaded: {formatApkDate(apk?.created_at)}
-                          </Typography.Text>
-                        </Space>
-                      );
-                    }}
-                    showSearch
-                    optionFilterProp="searchText"
-                    filterOption={(input, option) => {
-                      const searchText = input.toLowerCase();
-                      const optionText = (option?.searchText || '').toLowerCase();
-                      return optionText.includes(searchText);
-                    }}
-                  />
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Select
+                      placeholder="Select app file"
+                      loading={loadingApks}
+                      disabled={!selectedPlatform}
+                      options={appFileOptions}
+                      optionRender={(option) => {
+                        const apk = option?.data?.apk || option?.apk;
+                        return (
+                          <Space direction="vertical" size={0}>
+                            <Typography.Text strong>{option.value}</Typography.Text>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              {[apk?.version_name ? `v${apk.version_name}` : null, apk?.file_path ? `Path: ${apk.file_path}` : null, `Size: ${formatApkSize(apk?.file_size)}`]
+                                .filter(Boolean)
+                                .join(' • ')}
+                            </Typography.Text>
+                            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                              Uploaded: {formatApkDate(apk?.created_at)}
+                            </Typography.Text>
+                          </Space>
+                        );
+                      }}
+                      showSearch
+                      optionFilterProp="searchText"
+                      filterOption={(input, option) => {
+                        const searchText = input.toLowerCase();
+                        const optionText = (option?.searchText || '').toLowerCase();
+                        return optionText.includes(searchText);
+                      }}
+                    />
+
+                    <Upload
+                      customRequest={handleAppFileUpload}
+                      showUploadList={false}
+                      disabled={!selectedPlatform || appUploadLoading || appSourceType !== 'file'}
+                      accept={uploadAccept}
+                    >
+                      <Button
+                        icon={<UploadOutlined />}
+                        loading={appUploadLoading}
+                        disabled={!selectedPlatform || appUploadLoading}
+                      >
+                        Upload new {selectedPlatform === 'ios' ? 'IPA' : 'APK'}
+                      </Button>
+                    </Upload>
+                    {!selectedPlatform && (
+                      <Typography.Text type="secondary">
+                        Select a platform to enable uploading a new app file.
+                      </Typography.Text>
+                    )}
+                  </Space>
                 </Form.Item>
               ) : (
                 <Form.Item
@@ -1824,45 +1885,14 @@ const VMs = () => {
               </Form.Item>
 
               <Form.Item
-                name="test_suite"
-                label="Test Suite"
-                rules={[{ required: true, message: 'Please enter test suite name' }]}
-                tooltip="Enter the name of the test suite to execute"
-              >
-                <Input placeholder="FortiToken_Mobile" />
-              </Form.Item>
-
-              <Form.Item
                 name="test_product"
-                label="Testing Product"
+                label="Testing Product (Test Suite)"
                 rules={[{ required: true, message: 'Please select testing product' }]}
-                tooltip="Select the product under test"
+                tooltip="Select the product under test. The selected product will be used as the test suite."
               >
                 <Select
                   placeholder="Select testing product"
-                  options={[
-                    { label: 'FortiGate', value: 'FortiGate' },
-                    { label: 'FortiAuthenticator', value: 'FortiAuthenticator' },
-                    { label: 'FortiTokenCloud_FAC', value: 'FortiTokenCloud_FAC' },
-                    { label: 'FortiTokenCloud_FGT', value: 'FortiTokenCloud_FGT' },
-                    { label: 'FortiToken', value: 'FortiToken' },
-                    { label: 'FortiToken Cloud', value: 'FortiToken Cloud' },
-                  ]}
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="test_platforms"
-                label="Test Platforms"
-                rules={[{ required: true, message: 'Please select at least one platform' }]}
-                tooltip="Choose which platform versions to validate"
-              >
-                <Checkbox.Group
-                  options={[
-                    { label: 'iOS 16', value: 'ios16' },
-                    { label: 'iOS 17', value: 'ios17' },
-                    { label: 'iOS 18', value: 'ios18' },
-                  ]}
+                  options={testingProductOptions}
                 />
               </Form.Item>
             </>
@@ -1873,20 +1903,10 @@ const VMs = () => {
               <Alert
                 type="info"
                 message="Step 3: Execution Settings"
-                description="Configure Docker image tag, timeout, and save as template for future use."
+                description="Configure timeout and template preferences. Docker image details are now managed by the test environment."
                 showIcon
                 style={{ marginBottom: 16 }}
               />
-
-              <Form.Item
-                name="docker_tag"
-                label="Docker Tag"
-                rules={[{ required: true, message: 'Please enter docker tag' }]}
-                tooltip="Tag for the pytest-automation Docker image"
-                initialValue="latest"
-              >
-                <Input placeholder="latest" />
-              </Form.Item>
 
               <Form.Item
                 name="timeout"
@@ -1937,53 +1957,6 @@ const VMs = () => {
             </>
           )}
 
-          {currentStep === 3 && (
-            <>
-              <Alert
-                type="info"
-                message="Step 4: Jenkins Connection"
-                description="Provide Jenkins server details to authenticate and start the job."
-                showIcon
-                style={{ marginBottom: 16 }}
-              />
-
-              <Form.Item
-                name="jenkins_url"
-                label="Jenkins URL"
-                rules={[{ required: true, message: 'Please enter the Jenkins URL' }]}
-                tooltip="Base URL of the Jenkins instance that will run this job"
-              >
-                <Input placeholder="https://jenkins.example.com" />
-              </Form.Item>
-
-              <Form.Item
-                name="jenkins_username"
-                label="Jenkins Username"
-                rules={[{ required: true, message: 'Please enter the Jenkins username' }]}
-                tooltip="User with permissions to trigger the job"
-              >
-                <Input placeholder="jenkins-user" autoComplete="username" />
-              </Form.Item>
-
-              <Form.Item
-                name="jenkins_api_token"
-                label="Jenkins API Token"
-                rules={[{ required: true, message: 'Please enter the Jenkins API token' }]}
-                tooltip="API token for the Jenkins user"
-              >
-                <Input.Password placeholder="API token" autoComplete="current-password" />
-              </Form.Item>
-
-              <Form.Item
-                name="jenkins_job_name"
-                label="Jenkins Job Name"
-                rules={[{ required: true, message: 'Please enter the Jenkins job name' }]}
-                tooltip="Exact job path or name to trigger"
-              >
-                <Input placeholder="folder/job-name" />
-              </Form.Item>
-            </>
-          )}
         </Form>
       </Modal>
 
@@ -1992,13 +1965,11 @@ const VMs = () => {
         open={runPreviousModalOpen}
         onCancel={() => {
           setRunPreviousModalOpen(false);
-          runPreviousForm.resetFields();
           setPreviousTestConfig(null);
         }}
         footer={[
           <Button key="cancel" onClick={() => {
             setRunPreviousModalOpen(false);
-            runPreviousForm.resetFields();
             setPreviousTestConfig(null);
           }}>
             Cancel
@@ -2014,7 +1985,7 @@ const VMs = () => {
         ) : previousTestConfig ? (
           <>
             <Card size="small" title="Previous Test Configuration" style={{ marginBottom: 16 }}>
-              <Typography.Text strong>Test Suite:</Typography.Text> {previousTestConfig.config?.test_suite || 'N/A'}<br />
+              <Typography.Text strong>Testing Product:</Typography.Text> {previousTestConfig.config?.test_product || previousTestConfig.config?.test_suite || 'N/A'}<br />
               <Typography.Text strong>Environment:</Typography.Text> {previousTestConfig.config?.environment?.name || 'N/A'}<br />
               <Typography.Text strong>Docker Image:</Typography.Text> {previousTestConfig.config?.environment?.docker_registry || 'docker.io'}/{previousTestConfig.config?.environment?.docker_image || 'N/A'}<br />
               <Typography.Text strong>Previous Status:</Typography.Text> <Tag color={
@@ -2023,21 +1994,10 @@ const VMs = () => {
               }>{previousTestConfig.status?.toUpperCase()}</Tag>
             </Card>
 
-            <Form form={runPreviousForm} layout="vertical">
-              <Form.Item
-                name="docker_tag"
-                label="Docker Tag"
-                rules={[{ required: true, message: 'Please enter docker tag' }]}
-                tooltip="Modify the Docker tag to use a different version"
-              >
-                <Input placeholder="latest, v1.0.0, dev, etc." />
-              </Form.Item>
-            </Form>
-
             <Alert
-              type="success"
-              message="All other settings will remain the same"
-              description="Only the Docker tag will be changed. VM IP, credentials, test suite, and all other parameters will be reused."
+              type="info"
+              message="Re-run will reuse the verified environment"
+              description="The test environment now manages container tags and credentials automatically. All previous parameters will be reused."
               showIcon
             />
           </>
