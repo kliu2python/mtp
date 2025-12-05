@@ -17,7 +17,7 @@ class STFClient:
         Initialize STF client
 
         Args:
-            base_url: STF server URL (e.g., "http://10.160.13.118:7100")
+            base_url: STF server URL (e.g., "http://10.160.13.118:80")
             jwt_token: JWT authentication token
         """
         self.base_url = base_url.rstrip('/')
@@ -243,7 +243,7 @@ def get_stf_client(base_url: str = None, jwt_token: str = None) -> STFClient:
     global _stf_client
 
     # Default configuration
-    default_url = "http://10.160.13.118:7100"
+    default_url = "http://10.160.13.118:80"
     default_jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiZGV2aWNlX3Byb3h5X2JvdCIsImVtYWlsIjoiYm90QGZvcnRpbmV0LmNvbSIsImlhdCI6MTc2Mjg4ODEyOSwiZXhwIjoyMDc4NDY0MTI5fQ.E4QB8OsbVl51vYjLJgscMPe2AitmLtkki7ult1jkyRg"
 
     url = base_url or default_url
