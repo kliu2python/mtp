@@ -803,28 +803,10 @@ const VMs = () => {
   const fetchAvailableDevices = async (platformFilter = selectedPlatform) => {
     setLoadingDevices(true);
     try {
-      const [nodesResponse, availableResponse] = await Promise.all([
-        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`),
-        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes/available`)
-      ]);
+      const nodesResponse = await axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`);
 
       const nodesData = nodesResponse.data || {};
       const nodes = Object.values(nodesData);
-
-      const availableRaw = availableResponse.data;
-      let availableSet = new Set();
-
-      if (Array.isArray(availableRaw)) {
-        availableSet = new Set(availableRaw.map((item) => (typeof item === 'string' ? item : item?.id)));
-      } else if (availableRaw) {
-        if (Array.isArray(availableRaw.available)) {
-          availableSet = new Set(
-            availableRaw.available.map((item) => (typeof item === 'string' ? item : item?.id))
-          );
-        } else {
-          availableSet = new Set(Object.keys(availableRaw));
-        }
-      }
 
       const normalizedPlatform = platformFilter ? platformFilter.toLowerCase() : null;
 

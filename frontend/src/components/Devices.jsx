@@ -14,28 +14,10 @@ const Devices = () => {
 
   const fetchDevices = async () => {
     try {
-      const [nodesResponse, availableResponse] = await Promise.all([
-        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`),
-        axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes/available`)
-      ]);
+      const nodesResponse = await axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`);
 
       const nodesData = nodesResponse.data || {};
       const nodes = Object.values(nodesData);
-
-      const availableRaw = availableResponse.data;
-      let availableSet = new Set();
-
-      if (Array.isArray(availableRaw)) {
-        availableSet = new Set(availableRaw.map((item) => (typeof item === 'string' ? item : item?.id)));
-      } else if (availableRaw) {
-        if (Array.isArray(availableRaw.available)) {
-          availableSet = new Set(
-            availableRaw.available.map((item) => (typeof item === 'string' ? item : item?.id))
-          );
-        } else {
-          availableSet = new Set(Object.keys(availableRaw));
-        }
-      }
 
       const normalizedDevices = nodes.map((node) => {
         const nodeId = node?.id || node?.deviceName || node?.name;
@@ -46,9 +28,8 @@ const Devices = () => {
         const isAvailableFromStatus =
           nodeStatus === 'online' ? true : nodeStatus === 'offline' || nodeStatus === 'busy' ? false : null;
         const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
-        const isAvailableFromApi = nodeId ? availableSet.has(nodeId) : null;
 
-        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions, isAvailableFromApi];
+        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions];
         const isAvailable = availabilitySources.find((value) => value !== null) ?? false;
         const derivedStatus = isAvailable ? 'available' : 'not available';
 
