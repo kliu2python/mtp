@@ -25,7 +25,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons';
 import axios from 'axios';
-import { API_URL, JENKINS_CLOUD_API_URL } from '../constants';
+import { API_URL } from '../constants';
 
 const { Title, Text } = Typography;
 
@@ -129,6 +129,26 @@ const PreFlightSection = ({
     try {
       setSubmitting(true);
 
+      const payload = {
+        environment: 'Prod',
+        platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
+        parameters: {
+          RUN_STAGE: 'FortiGate',
+          ftm_ipa_version: file.name,
+        },
+      };
+
+      try {
+        await axios.post(`${API_URL}/api/v1/jenkins_cloud/run/execute/ftm`, payload);
+        message.success('PreFlight check triggered successfully.');
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to trigger PreFlight check', error);
+        const errorMsg = error?.response?.data?.error || error?.response?.data?.detail;
+        message.error(errorMsg || 'Unable to trigger PreFlight check.');
+        return;
+      }
+
       onAddEntry({
         fileName: primaryFile.name,
         buildNumber: values.buildNumber,
@@ -137,29 +157,7 @@ const PreFlightSection = ({
         jenkinsUrl,
       });
 
-      if (jenkinsUrl) {
-        const payload = {
-          environment: 'production',
-          platforms: [platformKey],
-          project: platformKey === 'ios' ? 'ftm_ios' : 'ftm_android',
-          parameters: {
-            build_number: values.buildNumber,
-            artifact_name: file.name,
-          },
-        };
-
-        try {
-          await axios.post(`${JENKINS_CLOUD_API_URL}/run/execute/ftm`, payload);
-          message.success('Jenkins job triggered for acceptable test.');
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.error('Failed to trigger Jenkins job', error);
-          const errorMsg = error?.response?.data?.error || error?.response?.data?.detail;
-          message.warning(errorMsg || 'Added to list, but Jenkins trigger failed.');
-        }
-      }
-
-      message.success(`${platform} entry added to Acceptable Tests.`);
+      message.success(`${platform} PreFlight check recorded.`);
       form.resetFields();
       setFileList([]);
     } finally {
@@ -175,7 +173,7 @@ const PreFlightSection = ({
           title={
             <Space>
               <UploadOutlined style={{ color: accent }} />
-              <Text strong style={{ fontSize: 14 }}>Submit {platform} Build for Acceptable Test</Text>
+              <Text strong style={{ fontSize: 14 }}>Submit {platform} Build for PreFlight Check</Text>
             </Space>
           }
           extra={
@@ -202,7 +200,7 @@ const PreFlightSection = ({
                 <UploadOutlined />
               </p>
               <p className="ant-upload-text">Click or drag {platform} build here</p>
-              <p className="ant-upload-hint">The file will be used directly for acceptable testing.</p>
+              <p className="ant-upload-hint">The file will be used directly for the PreFlight check.</p>
             </Upload.Dragger>
           </Form.Item>
 
@@ -230,7 +228,7 @@ const PreFlightSection = ({
 
           <Form.Item>
             <Button type="primary" htmlType="submit" icon={<SafetyCertificateOutlined />}>
-              Add to Acceptable Test List
+              Run PreFlight Check
             </Button>
           </Form.Item>
         </Form>
@@ -243,7 +241,7 @@ const PreFlightSection = ({
           title={
             <Space>
               <LinkOutlined />
-              <Text strong style={{ fontSize: 14 }}>{platform} Acceptable Tests</Text>
+              <Text strong style={{ fontSize: 14 }}>{platform} PreFlight Checks</Text>
             </Space>
           }
           bodyStyle={{ padding: 12 }}
@@ -373,10 +371,10 @@ const PreFlight = ({ jenkinsUrl }) => {
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <div>
         <Title level={4} style={{ marginBottom: 2, fontWeight: 600 }}>
-          PreFlight Acceptable Test
+          PreFlight Check
         </Title>
         <Text type="secondary" style={{ marginBottom: 0, fontSize: 13, display: 'block' }}>
-          Prepare builds for QA by uploading platform binaries, tagging fixed Mantis issues, and tracking acceptable tests in one place.
+          Prepare builds for QA by uploading platform binaries, tagging fixed Mantis issues, and triggering platform-specific PreFlight checks.
         </Text>
       </div>
 
@@ -385,7 +383,7 @@ const PreFlight = ({ jenkinsUrl }) => {
           type="info"
           showIcon
           message="Jenkins link not configured"
-          description="Add a Jenkins URL in Settings to enable quick access from the Acceptable Test table."
+          description="Add a Jenkins URL in Settings to enable quick access from the PreFlight check table."
         />
       )}
 
