@@ -1,13 +1,19 @@
 """
 Core configuration settings
 """
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 import os
 
 
 class Settings(BaseSettings):
     """Application settings"""
+
+    model_config = SettingsConfigDict(
+        case_sensitive=True,
+        env_file=".env",
+        extra="ignore",
+    )
     
     # App
     APP_NAME: str = "Test Automation Platform"
@@ -67,9 +73,4 @@ class Settings(BaseSettings):
     MANTIS_DB_PATH: str = os.getenv("MANTIS_DB_PATH", "./data/mantis_data.db")
     MANTIS_TABLE_NAME: str = os.getenv("MANTIS_TABLE_NAME", "issues_49_FortiToken")
     
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
-
-
 settings = Settings()
