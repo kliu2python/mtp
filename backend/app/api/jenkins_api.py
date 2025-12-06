@@ -117,9 +117,12 @@ def ListAllGroups():
 def ExecuteFTMJenkinsTask(request: Request):
     try:
         data = request.json
+        logger.info("Received FTM run request: %s", data)
         res = runner.execute_run_task(data)
+        logger.info("FTM run request processed with result: %s", res)
         return {"results": res}
     except Exception as e:
+        logger.exception("Failed to execute FTM Jenkins task")
         return {"error": "Error fetching job structure on DB"}, 500
 
 
@@ -141,6 +144,9 @@ def GetAcceptableTestRecords():
             records,
             key=lambda item: item.get("updated_at") or item.get("started_at") or "",
             reverse=True,
+        )
+        logger.info(
+            "Returning %d acceptable test records", len(sorted_records)
         )
         return {"results": sorted_records}
     except Exception as exc:
