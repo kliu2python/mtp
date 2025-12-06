@@ -42,7 +42,19 @@ class MongoDBAPI:
 
     def insert_acceptable_test_record(self, record: dict):
         """Persist an acceptable test record into MongoDB."""
-        return self.insert_document(record, collection="acceptable_tests")
+        logger.debug(
+            "Inserting acceptable test record for job %s", record.get("name")
+        )
+        result = self.insert_document(record, collection="acceptable_tests")
+        if result is not None:
+            logger.info(
+                "Inserted acceptable test record for job %s", record.get("name")
+            )
+        else:
+            logger.error(
+                "Failed to insert acceptable test record for job %s", record.get("name")
+            )
+        return result
 
     def get_acceptable_test_records(self):
         """Fetch acceptable test records from MongoDB."""
@@ -51,7 +63,11 @@ class MongoDBAPI:
             response = requests.get(url)
             response.raise_for_status()
             data = response.json()
-            return data.get("documents", [])
+            records = data.get("documents", [])
+            logger.info(
+                "Fetched %d acceptable test records from MongoDB", len(records)
+            )
+            return records
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching acceptable test records from MongoDB: {e}")
             return []

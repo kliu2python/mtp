@@ -356,24 +356,53 @@ class JenkinsService:
         try:
             test_env_info = self.mongo_client.fetch_test_env_info(test_env,
                                                                   custom_env)
+            logger.info("Starting Jenkins run task", extra={
+                "project": test_project,
+                "environment": test_env,
+                "platforms": test_platforms,
+                "parameters": request_info,
+                "custom_env": custom_env,
+            })
             logger.info(f"test env is {test_env_info}")
             threads = []
 
             for platform in test_platforms:
                 test_server = JOB_PATH.get(platform)
                 if not test_server:
+                    logger.warning("No Jenkins job configured for platform %s",
+                                   platform)
                     continue
 
                 # Merge dictionaries
                 parameters = {**request_info, **test_env_info}
                 parameters.pop("_id", None)
                 parameters.pop("name", None)
+                logger.info(
+                    "Triggering Jenkins job", extra={
+                        "platform": platform,
+                        "job_path": test_server,
+                        "parameters": parameters,
+                    })
 
                 def run_and_track(server, params, platform_name):
+                    logger.debug(
+                        "Thread started for platform %s with params %s",
+                        platform_name, params,
+                    )
                     build_num = self.server.build_job(server, params)
+                    logger.info(
+                        "Queued Jenkins build", extra={
+                            "platform": platform_name,
+                            "job_path": server,
+                            "queue_id": build_num,
+                        })
 
                     while True:
                         queue_info = self.server.get_queue_item(build_num)
+                        logger.debug(
+                            "Polling queue for platform %s: %s",
+                            platform_name, queue_info,
+                        )
                         if 'executable' in queue_info:
                             build_url = queue_info['executable']['url']
                             build_number = queue_info['executable']['number']
@@ -383,7 +412,7 @@ class JenkinsService:
                                 "name": job_info,
                                 "build_url": build_url,
                                 "build_parameters": params,
-                                "platform": platform,
+                                "platform": platform_name,
                                 "app": test_project,
                                 "res": "running",
                                 "started_at": datetime.utcnow().isoformat(),
@@ -398,10 +427,27 @@ class JenkinsService:
                                     **insert_body,
                                     "test_scope": "acceptable",
                                 }
-                                self.mongo_client.insert_acceptable_test_record(
-                                    acceptable_record
+                                acceptable_result = (
+                                    self.mongo_client.insert_acceptable_test_record(
+                                        acceptable_record
+                                    )
                                 )
-                            logger.info(f'saved the docs {job_info}')
+                                if acceptable_result is None:
+                                    logger.error(
+                                        "Failed to persist acceptable test record for %s",
+                                        job_info,
+                                    )
+                                else:
+                                    logger.info(
+                                        "Persisted acceptable test record for %s", job_info
+                                    )
+                            logger.info(
+                                "Saved Jenkins run record", extra={
+                                    "job": job_info,
+                                    "build_number": build_number,
+                                    "build_url": build_url,
+                                    "platform": platform_name,
+                                })
                             break
                         sleep(2)
 
@@ -410,12 +456,14 @@ class JenkinsService:
                     args=(test_server, parameters.copy(), platform),
                     daemon=True)
                 threads.append(thread)
+                logger.debug(
+                    "Starting thread for platform %s", platform)
                 thread.start()
 
             return True
 
         except Exception as e:
-            logger.error(f"Failed to execute job: {str(e)}")
+            logger.exception("Failed to execute job")
             return False
 
     def fetch_job_structure(self, data):
