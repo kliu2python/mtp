@@ -14,7 +14,6 @@ import {
   BugOutlined,
   CheckCircleOutlined,
   CloudServerOutlined,
-  ExperimentOutlined,
   MobileOutlined,
   PlayCircleOutlined
 } from '@ant-design/icons';
@@ -33,10 +32,9 @@ const Dashboard = () => {
 
   const fetchStats = async () => {
     setLoading(true);
-    const [vmsRes, devicesRes, stfRes, mantisRes] = await Promise.allSettled([
+    const [vmsRes, devicesRes, mantisRes] = await Promise.allSettled([
       axios.get(`${API_URL}/api/vms/stats/summary`),
       axios.get(`${API_URL}/api/devices/stats/summary`),
-      axios.get(`${API_URL}/api/stf/stats`),
       axios.get(`${API_URL}/api/mantis/`, { params: { page: 1, page_size: 1 } })
     ]);
 
@@ -52,10 +50,6 @@ const Dashboard = () => {
       nextStats.devices = devicesRes.value.data;
     } else {
       message.error('Failed to fetch device statistics');
-    }
-
-    if (stfRes.status === 'fulfilled') {
-      nextStats.stf = stfRes.value.data;
     }
 
     if (mantisRes.status === 'fulfilled') {
@@ -78,9 +72,6 @@ const Dashboard = () => {
   const availableDevices = stats?.devices?.by_status?.available || 0;
   const busyDevices = stats?.devices?.by_status?.busy || 0;
 
-  const stfAvailable = stats?.stf?.stf_available || 0;
-  const stfBusy = stats?.stf?.stf_busy || 0;
-
   const tests24h = stats?.vms?.tests_24h;
   const mantisTotal = stats?.mantis?.total || 0;
   const mantisOpen = stats?.mantis?.status_counts?.open || stats?.mantis?.status_counts?.opened || 0;
@@ -91,7 +82,7 @@ const Dashboard = () => {
     <div>
       <h1>Dashboard</h1>
       <Row gutter={16}>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic
               title="Available Testbeds"
@@ -101,7 +92,7 @@ const Dashboard = () => {
             <Text type="secondary">{runningVms} running / {testingVms} testing</Text>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic
               title="Running Tests"
@@ -112,7 +103,7 @@ const Dashboard = () => {
             <Text type="secondary">Linked to active testbeds</Text>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card>
             <Statistic
               title="Lab Devices Available"
@@ -120,16 +111,6 @@ const Dashboard = () => {
               prefix={<MobileOutlined />}
             />
             <Text type="secondary">{busyDevices} busy / {totalDevices} total</Text>
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="STF Devices Ready"
-              value={stfAvailable}
-              prefix={<ExperimentOutlined />}
-            />
-            <Text type="secondary">{stfBusy} in use via STF</Text>
           </Card>
         </Col>
       </Row>
