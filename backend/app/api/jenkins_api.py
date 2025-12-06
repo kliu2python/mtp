@@ -114,9 +114,9 @@ def ListAllGroups():
 
 
 @router.post("/run/execute/ftm")
-def ExecuteFTMJenkinsTask(request: Request):
+async def ExecuteFTMJenkinsTask(request: Request):
     try:
-        data = request.json
+        data = await request.json()
         logger.info("Received FTM run request: %s", data)
         res = runner.execute_run_task(data)
         logger.info("FTM run request processed with result: %s", res)
