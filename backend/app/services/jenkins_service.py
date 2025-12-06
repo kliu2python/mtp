@@ -43,6 +43,7 @@ class JenkinsService:
         self.server = jenkins.Jenkins(
             server_ip, username=server_un, password=server_pw
         )
+        self.base_job_path = extract_job_path(server_ip)
         self.mongo_client = MongoDBAPI()
         try:
             self.version = self.server.get_version()
@@ -52,7 +53,8 @@ class JenkinsService:
             exit(1)
 
     def _get_build_status(self, job_path, build_number):
-        build_details = self.server.get_build_info(job_path, build_number)
+        normalized_job = self._normalize_job_name(job_path)
+        build_details = self.server.get_build_info(normalized_job, build_number)
         if build_details.get("building"):
             status = "BUILDING"
         else:
@@ -66,6 +68,23 @@ class JenkinsService:
     def fetch_auth_info_by_job_name(self, job_name):
         job_info = self.mongo_client.get_job_by_name(job_name)
         return job_info
+
+    def _normalize_job_name(self, job_path: str) -> str:
+        """Return a job name relative to the configured Jenkins base path."""
+        normalized = (extract_job_path(job_path)
+                      if (job_path.startswith("http") or "job/" in job_path)
+                      else job_path.strip('/'))
+
+        if self.base_job_path:
+            prefix = f"{self.base_job_path.strip('/')}/"
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix):]
+
+        return normalized
+
+    def _build_job(self, job_path: str, parameters: dict):
+        normalized_job = self._normalize_job_name(job_path)
+        return self.server.build_job(normalized_job, parameters)
 
     def get_all_saved_jobs(self):
         res = self.mongo_client.get_all_jobs()
@@ -89,7 +108,8 @@ class JenkinsService:
         :return: List of parameters (name, default, type, description)
         """
         try:
-            job_info = self.server.get_job_info(job_path)
+            normalized_job = self._normalize_job_name(job_path)
+            job_info = self.server.get_job_info(normalized_job)
             parameters = []
             if job_info.get("property"):
                 for prop in job_info.get("property", []):
@@ -104,17 +124,17 @@ class JenkinsService:
                                                      {}).get("value"),
                                 "description": param.get("description", "")})
             else:
-                parameters = self.get_job_parameters_via_property(job_path)
+                parameters = self.get_job_parameters_via_property(normalized_job)
             if parameters:
                 logger.info("Fetched %d parameters for job %s", len(parameters),
-                            job_path)
+                            normalized_job)
             else:
-                logger.info("Job %s has no parameters", job_path)
+                logger.info("Job %s has no parameters", normalized_job)
             return parameters
         except jenkins.NotFoundException:
-            logger.error("Job not found: %s", job_path)
+            logger.error("Job not found: %s", normalized_job)
         except Exception as e:
-            logger.error("Failed to fetch parameters for job %s: %s", job_path,
+            logger.error("Failed to fetch parameters for job %s: %s", normalized_job,
                          e)
         return []
 
@@ -123,7 +143,16 @@ class JenkinsService:
         """
         Fetches job parameters from the `property` array
         """
-        segments = [f"job/{part}" for part in job_path.strip("/").split("/")]
+        normalized_job = (extract_job_path(job_path)
+                          if (job_path.startswith("http") or "job/" in job_path)
+                          else job_path.strip("/"))
+        base_job_path = extract_job_path(JENKINS_IP)
+        if base_job_path:
+            prefix = f"{base_job_path.strip('/')}/"
+            if normalized_job.startswith(prefix):
+                normalized_job = normalized_job[len(prefix):]
+
+        segments = [f"job/{part}" for part in normalized_job.split("/")]
         url = f"{JENKINS_IP}/{'/'.join(segments)}/api/json"
 
         try:
@@ -148,19 +177,19 @@ class JenkinsService:
                             "description": p.get("description", ""),
                             "choices": p.get("choices", [])
                         } for p in param_defs]
-            logger.info("No parameters found for job %s", job_path)
+            logger.info("No parameters found for job %s", normalized_job)
             return []
 
         except Exception as e:
             logger.error(
                 "Error fetching job parameters from property for job %s: %s",
-                job_path, e)
+                normalized_job, e)
             return []
 
     def execute_job(self, body):
-        job_name = extract_job_path(body.get("server_ip"))
+        job_name = self._normalize_job_name(body.get("server_ip"))
         parameters = body.get("parameters")
-        build_num = self.server.build_job(job_name, parameters)
+        build_num = self._build_job(job_name, parameters)
 
         # Background worker function
         def update_build_info():
@@ -319,7 +348,8 @@ class JenkinsService:
         udid as the primary key.
         """
         try:
-            self.server.build_job(job_name, parameters=parameters)
+            normalized_job = self._normalize_job_name(job_name)
+            self._build_job(normalized_job, parameters=parameters)
             logger.info("Executed job %s with parameters %s", job_name,
                         parameters)
             record = {
@@ -389,7 +419,7 @@ class JenkinsService:
                         "Thread started for platform %s with params %s",
                         platform_name, params,
                     )
-                    build_num = self.server.build_job(server, params)
+                    build_num = self._build_job(server, params)
                     logger.info(
                         "Queued Jenkins build", extra={
                             "platform": platform_name,
