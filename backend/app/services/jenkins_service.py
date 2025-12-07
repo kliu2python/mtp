@@ -330,6 +330,50 @@ class JenkinsService:
 
         return result
 
+    def refresh_acceptable_test_result(self, record: dict):
+        """Fetch Jenkins result for an acceptable test and persist it."""
+        if not record or not record.get("build_url"):
+            return record
+
+        if record.get("res") in ["SUCCESS", "ABORTED", "FAILURE", "UNSTABLE", "NOT_BUILT"]:
+            return record
+
+        job_path = extract_job_path(record.get("build_url"))
+        match = re.search(r'/(\d+)/?$', record.get("build_url", ""))
+        if not match:
+            logger.warning("Unable to determine build number from %s", record.get("build_url"))
+            return record
+
+        build_number = match.group(1)
+        try:
+            build_info = self.server.get_build_info(job_path, int(build_number))
+            result = build_info.get('result')
+        except Exception as exc:
+            logger.error("Failed to fetch Jenkins result for %s #%s: %s", job_path, build_number, exc)
+            return record
+
+        if not result:
+            return {**record, "res": record.get("res") or "running"}
+
+        updates = {
+            "res": result,
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        self.mongo_client.update_acceptable_test_record(record.get("_id") or record.get("name"), updates)
+        record.update(updates)
+        return record
+
+    def refresh_acceptable_test_records(self, records: list):
+        """Refresh Jenkins results for acceptable test records."""
+        refreshed = []
+        for record in records or []:
+            try:
+                refreshed.append(self.refresh_acceptable_test_result(record))
+            except Exception as exc:
+                logger.error("Failed to refresh acceptable test record %s: %s", record, exc)
+                refreshed.append(record)
+        return refreshed
+
     def delete_run_result(self, job_name=None):
         if not job_name or job_name in ['undefined', 'null', '']:
             logger.warning(f"Skipping invalid job_name={job_name}")
@@ -439,13 +483,23 @@ class JenkinsService:
                             build_number = queue_info['executable']['number']
                             job_info = platform_name + str(build_number)
 
+                            stored_params = {
+                                key: value
+                                for key, value in params.items()
+                                if key not in {"mantis_ids", "build_number", "app_download_url", "download_url"}
+                            }
+
                             insert_body = {
                                 "name": job_info,
                                 "build_url": build_url,
-                                "build_parameters": params,
+                                "build_parameters": stored_params,
                                 "platform": platform_name,
                                 "app": test_project,
                                 "res": "running",
+                                "build_number": params.get("build_number"),
+                                "resolved_mantis_ids": params.get("mantis_ids"),
+                                "download_url": params.get("app_download_url") or params.get("download_url"),
+                                "app_file": params.get("ftm_ipa_version") or params.get("ftm_apk_version"),
                                 "started_at": datetime.utcnow().isoformat(),
                                 "updated_at": datetime.utcnow().isoformat()
                             }

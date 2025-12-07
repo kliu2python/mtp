@@ -139,7 +139,9 @@ def GetFTMIOSTaskRun():
 def GetAcceptableTestRecords():
     """Return acceptable-scope test records persisted in MongoDB."""
     try:
-        records = MongoDBAPI().get_acceptable_test_records()
+        mongo_client = MongoDBAPI()
+        records = mongo_client.get_acceptable_test_records()
+        records = runner.refresh_acceptable_test_records(records)
         sorted_records = sorted(
             records,
             key=lambda item: item.get("updated_at") or item.get("started_at") or "",
@@ -152,6 +154,26 @@ def GetAcceptableTestRecords():
     except Exception as exc:
         logger.error("Failed to fetch acceptable test records: %s", exc)
         return {"error": "Error fetching acceptable test records from DB"}, 500
+
+
+@router.delete("/run/acceptable-tests")
+def DeleteAcceptableTestRecord(request: Request):
+    """Remove an acceptable test record by _id or name."""
+    record_id = request.query_params.get("id") or request.query_params.get("record_id")
+    name = request.query_params.get("name")
+
+    if not record_id and not name:
+        return {"error": "record identifier is required"}, 400
+
+    try:
+        result = MongoDBAPI().delete_acceptable_test_record(record_id=record_id, name=name)
+        if result is None:
+            return {"error": "Unable to delete acceptable test record"}, 500
+
+        return {"result": "deleted"}
+    except Exception as exc:
+        logger.error("Failed to delete acceptable test record: %s", exc)
+        return {"error": "Error deleting acceptable test record"}, 500
 
 
 @router.get("/run/results/ios/ftm")
