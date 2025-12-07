@@ -31,7 +31,7 @@ import { API_URL } from '../constants';
 
 const { Title, Text } = Typography;
 
-const buildMantisLink = (issue) => issue?.url || `${API_URL}/mantis/view.php?id=${issue?.issue_id || issue?.id}`;
+const buildMantisLink = (issue) => issue?.url || `https://mantis.fortinet.com/bug_view_page.php?bug_id=${issue?.issue_id || issue?.id}`;
 
 const defaultPagination = {
   pageSize: 5,
