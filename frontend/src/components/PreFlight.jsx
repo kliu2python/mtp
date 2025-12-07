@@ -37,6 +37,13 @@ const defaultPagination = {
   pageSizeOptions: ['5', '10', '20'],
 };
 
+const buildFileUrl = (path) => {
+  if (!path) return '';
+  const base = API_URL?.replace(/\/$/, '') || '';
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${normalizedPath}`;
+};
+
 const PreFlightSection = ({
   platform,
   platformKey,
@@ -129,20 +136,38 @@ const PreFlightSection = ({
     const primaryFile = fileList[0];
     const file = primaryFile.originFileObj || primaryFile;
 
-    const downloadUrl = URL.createObjectURL(file);
-
     try {
       setSubmitting(true);
 
-    const payload = {
-      environment: 'Prod',
-      platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
-      parameters: {
-        RUN_STAGE: 'FortiGate',
-        [platformKey === 'ios' ? 'ftm_ipa_version' : 'ftm_apk_version']: file.name,
-      },
-      test_scopt: 'acceptable'
-    };
+      const formData = new FormData();
+      formData.append('files', file);
+
+      const uploadResponse = await axios.post(`${API_URL}/api/files/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      const uploadedFile = uploadResponse?.data?.files?.[0];
+      const downloadUrl = buildFileUrl(uploadedFile?.path);
+
+      if (!downloadUrl) {
+        message.error('Unable to determine download URL for the uploaded app.');
+        return;
+      }
+
+      const payload = {
+        environment: 'Prod',
+        platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
+        parameters: {
+          RUN_STAGE: 'FortiGate',
+          mantis_ids: values.mantisIds,
+          build_number: values.buildNumber,
+          app_download_url: downloadUrl,
+          [platformKey === 'ios' ? 'ftm_ipa_version' : 'ftm_apk_version']: file.name,
+        },
+        test_scope: 'acceptable',
+      };
 
       try {
         await axios.post(`${API_URL}/api/jenkins/run/execute/ftm`, payload);
@@ -166,6 +191,10 @@ const PreFlightSection = ({
       message.success(`${platform} PreFlight check recorded.`);
       form.resetFields();
       setFileList([]);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to record PreFlight check', error);
+      message.error('Unable to record PreFlight check. Please try again.');
     } finally {
       setSubmitting(false);
     }
