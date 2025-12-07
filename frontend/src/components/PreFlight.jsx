@@ -134,14 +134,15 @@ const PreFlightSection = ({
     try {
       setSubmitting(true);
 
-      const payload = {
-        environment: 'Prod',
-        platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
-        parameters: {
-          RUN_STAGE: 'FortiGate',
-          ftm_ipa_version: file.name,
-        },
-      };
+    const payload = {
+      environment: 'Prod',
+      platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
+      parameters: {
+        RUN_STAGE: 'FortiGate',
+        [platformKey === 'ios' ? 'ftm_ipa_version' : 'ftm_apk_version']: file.name,
+      },
+      test_scopt: 'acceptable'
+    };
 
       try {
         await axios.post(`${API_URL}/api/jenkins/run/execute/ftm`, payload);

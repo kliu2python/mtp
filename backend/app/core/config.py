@@ -62,14 +62,21 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
     # Jenkins
-    JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080/job/mobile_test/")
+    JENKINS_URL: str = os.getenv("JENKINS_URL", "http://10.160.13.30:8080/")
     JENKINS_USERNAME: str = os.getenv("JENKINS_USERNAME", "taas-api")
     JENKINS_API_TOKEN: str = os.getenv("JENKINS_API_TOKEN", "118eed0315e68f05695c4db245f358f2d0")
     JOB_PATH: dict = {
         "ios17": "mobile_test/FortiToken_Mobile/iOS/iPhone12-ios17/ios17_auto_test",
         "ios16": "mobile_test/FortiToken_Mobile/iOS/iPhone8-ios16/ios16_auto_test",
         "ios18": "mobile_test/FortiToken_Mobile/iOS/iPhone11-ios18/ios18_auto_test",
-        "ios15": "mobile_test/FortiToken_Mobile/iOS/iPhone7-ios15/ios15_auto_test"
+        "ios15": "mobile_test/FortiToken_Mobile/iOS/iPhone7-ios15/ios15_auto_test",
+        "android15": "/mobile_test/FortiToken_Mobile/android/android_15/android_15_auto/",
+        "android14": "/mobile_test/FortiToken_Mobile/android/android_14/android_14_auto/",
+        "android13": "/mobile_test/FortiToken_Mobile/android/android_13/android_13_auto/",
+        "android12": "/mobile_test/FortiToken_Mobile/android/android_12/android_12_auto/",
+        "android11": "/mobile_test/FortiToken_Mobile/android/android_11/android_11_auto/",
+        "android10": "/mobile_test/FortiToken_Mobile/android/android_10/android_10_auto/",
+        
     }
 
     # Monitoring

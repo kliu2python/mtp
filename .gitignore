@@ -32,5 +32,6 @@ certs/*.pem
 
 # Database
 backend/data/mantis_data.db
+backend/__pycache__/**
 
 test-files/**

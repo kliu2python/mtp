@@ -2,7 +2,6 @@
 Jenkins API service for triggering and monitoring Jenkins jobs
 """
 from datetime import datetime
-import logging
 import re
 import requests
 from requests.auth import HTTPBasicAuth
@@ -14,8 +13,9 @@ import jenkins
 
 from app.services.mongodb import MongoDBAPI
 from app.core.config import settings
+from app.services.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 JENKINS_IP = settings.JENKINS_URL
 JENKINS_UN = settings.JENKINS_USERNAME
@@ -382,6 +382,7 @@ class JenkinsService:
         request_info = data.get("parameters", {})
         custom_env = data.get("custom", {})
         test_project = data.get("project", "ftm_ios")
+        test_scope = data.get("test_scope", "acceptable")
 
         try:
             test_env_info = self.mongo_client.fetch_test_env_info(test_env,
@@ -452,7 +453,8 @@ class JenkinsService:
                                 insert_body,
                                 collection="runner"
                             )
-                            if params.get("test_scope") == "acceptable":
+                            logger.info(f"{test_scope} is {params}")
+                            if test_scope == "acceptable":
                                 acceptable_record = {
                                     **insert_body,
                                     "test_scope": "acceptable",

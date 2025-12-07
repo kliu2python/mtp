@@ -2,12 +2,12 @@
 Jenkins API endpoints
 """
 from fastapi import APIRouter, Request
-import logging
 
 from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService
 from app.services.mongodb import MongoDBAPI
+from app.services.logger import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger()
 
 router = APIRouter()
 runner = jenkins_service
