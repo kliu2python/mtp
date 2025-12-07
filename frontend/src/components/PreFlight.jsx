@@ -6,11 +6,13 @@ import {
   Col,
   Form,
   Input,
+  Popconfirm,
   Row,
   Select,
   Space,
   Table,
   Tabs,
+  Tag,
   Typography,
   Upload,
   message,
@@ -51,6 +53,8 @@ const PreFlightSection = ({
   fileAccept,
   entries,
   onAddEntry,
+  onDeleteEntry,
+  onRefresh,
   mantisOptions,
   mantisLoading,
   jenkinsUrl,
@@ -74,6 +78,24 @@ const PreFlightSection = ({
         dataIndex: 'buildNumber',
         key: 'buildNumber',
         width: 160,
+      },
+      {
+        title: 'Result',
+        dataIndex: 'status',
+        key: 'status',
+        width: 130,
+        render: (status) => {
+          const normalized = (status || 'running').toString().toUpperCase();
+          const colorMap = {
+            SUCCESS: 'green',
+            FAILURE: 'red',
+            ABORTED: 'volcano',
+            UNSTABLE: 'orange',
+            NOT_BUILT: 'default',
+            RUNNING: 'blue',
+          };
+          return <Tag color={colorMap[normalized] || 'blue'}>{normalized}</Tag>;
+        },
       },
       {
         title: 'Resolved Mantis IDs',
@@ -106,24 +128,37 @@ const PreFlightSection = ({
       {
         title: 'Actions',
         key: 'actions',
-        width: 160,
+        width: 220,
         render: (_, record) => (
-          record.downloadUrl ? (
-            <Button
-              type="link"
-              icon={<CloudDownloadOutlined />}
-              href={record.downloadUrl}
-              download={record.fileName}
+          <Space size="small">
+            {record.downloadUrl ? (
+              <Button
+                type="link"
+                icon={<CloudDownloadOutlined />}
+                href={record.downloadUrl}
+                download={record.fileName}
+              >
+                Download App
+              </Button>
+            ) : (
+              <Text type="secondary">No download available</Text>
+            )}
+            <Popconfirm
+              title="Delete this acceptable test record?"
+              okText="Delete"
+              cancelText="Cancel"
+              disabled={!record.rawId && !record.name}
+              onConfirm={() => onDeleteEntry(record)}
             >
-              Download App
-            </Button>
-          ) : (
-            <Text type="secondary">No download available</Text>
-          )
+              <Button type="link" danger disabled={!record.rawId && !record.name}>
+                Delete
+              </Button>
+            </Popconfirm>
+          </Space>
         ),
       },
     ],
-    [jenkinsUrl],
+    [jenkinsUrl, onDeleteEntry],
   );
 
   const handleSubmit = async (values) => {
@@ -186,6 +221,8 @@ const PreFlightSection = ({
         mantis: selectedIssues.map((issue) => ({ ...issue, url: buildMantisLink(issue) })),
         downloadUrl,
         jenkinsUrl,
+        status: 'RUNNING',
+        platform: platformKey,
       });
 
       message.success(`${platform} PreFlight check recorded.`);
@@ -262,7 +299,12 @@ const PreFlightSection = ({
           </Form.Item>
 
           <Form.Item>
-            <Button type="primary" htmlType="submit" icon={<SafetyCertificateOutlined />}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              icon={<SafetyCertificateOutlined />}
+              loading={submitting}
+            >
               Run PreFlight Check
             </Button>
           </Form.Item>
@@ -278,6 +320,11 @@ const PreFlightSection = ({
               <LinkOutlined />
               <Text strong style={{ fontSize: 14 }}>{platform} PreFlight Checks</Text>
             </Space>
+          }
+          extra={
+            <Button type="text" icon={<ReloadOutlined />} onClick={onRefresh}>
+              Refresh
+            </Button>
           }
           bodyStyle={{ padding: 12 }}
         >
@@ -344,7 +391,8 @@ const PreFlight = ({ jenkinsUrl }) => {
         (acc, record) => {
           const params = record.build_parameters || {};
           const platformKey = (record.platform || '').toLowerCase().includes('ios') ? 'ios' : 'android';
-          const mantisIds = params.mantis_ids || [];
+          const mantisIds =
+            record.resolved_mantis_ids || record.mantis_ids || params.mantis_ids || [];
           const mantisEntries = Array.isArray(mantisIds)
             ? mantisIds.map((id) => ({
                 value: id,
@@ -353,27 +401,39 @@ const PreFlight = ({ jenkinsUrl }) => {
               }))
             : [];
 
+          const buildNumber =
+            record.build_number ||
+            params.build_number ||
+            params.buildNumber ||
+            params.build ||
+            params.build_num ||
+            record.started_at ||
+            'N/A';
+          const downloadUrl = record.download_url || params.app_download_url || params.download_url;
+          const fileName =
+            record.app_file ||
+            params.ftm_ipa_version ||
+            params.ftm_apk_version ||
+            params.ftm_ipa ||
+            params.ftm_apk ||
+            params.ftm_build_version ||
+            params.ftm_build ||
+            record.name ||
+            'N/A';
+          const rawId = record._id?.$oid || record._id;
+          const recordId = rawId || record.name || `${platformKey}-${record.build_url || Date.now()}`;
+
           const entry = {
-            id: record._id || record.name || `${platformKey}-${record.build_url || Date.now()}`,
-            fileName:
-              params.ftm_ipa_version ||
-              params.ftm_apk_version ||
-              params.ftm_ipa ||
-              params.ftm_apk ||
-              params.ftm_build_version ||
-              params.ftm_build ||
-              record.name ||
-              'N/A',
-            buildNumber:
-              params.build_number ||
-              params.buildNumber ||
-              params.build ||
-              params.build_num ||
-              record.started_at ||
-              'N/A',
+            id: recordId,
+            rawId,
+            name: record.name,
+            platform: platformKey,
+            fileName,
+            buildNumber,
             mantis: mantisEntries,
-            downloadUrl: params.download_url || params.app_download_url,
+            downloadUrl,
             jenkinsUrl: record.build_url,
+            status: (record.res || record.status || 'RUNNING').toString().toUpperCase(),
           };
 
           acc[platformKey] = [...acc[platformKey], entry];
@@ -403,11 +463,35 @@ const PreFlight = ({ jenkinsUrl }) => {
       [platform]: [
         {
           id: `${platform}-${Date.now()}`,
+          platform,
+          status: (payload.status || 'RUNNING').toString().toUpperCase(),
           ...payload,
         },
         ...prev[platform],
       ],
     }));
+  };
+
+  const handleDeleteEntry = async (platform, record) => {
+    const recordId = record.rawId?.$oid || record.rawId || record.id;
+    setRecordLoading(true);
+    try {
+      await axios.delete(`${API_URL}/api/jenkins/run/acceptable-tests`, {
+        params: { id: recordId, name: record.name },
+      });
+      message.success('Acceptable test record deleted.');
+      setEntries((prev) => ({
+        ...prev,
+        [platform]: prev[platform].filter((item) => item.id !== record.id),
+      }));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to delete acceptable test record', error);
+      const errorMsg = error?.response?.data?.error;
+      message.error(errorMsg || 'Unable to delete acceptable test record.');
+    } finally {
+      setRecordLoading(false);
+    }
   };
 
   const tabItems = [
@@ -429,6 +513,8 @@ const PreFlight = ({ jenkinsUrl }) => {
           mantisLoading={mantisLoading}
           entries={entries.ios}
           onAddEntry={(payload) => handleAddEntry('ios', payload)}
+          onDeleteEntry={(record) => handleDeleteEntry('ios', record)}
+          onRefresh={fetchAcceptableRecords}
           jenkinsUrl={jenkinsUrl}
           pageSize={pageSizes.ios}
           onPageSizeChange={(size) => setPageSizes((prev) => ({ ...prev, ios: size }))}
@@ -454,6 +540,8 @@ const PreFlight = ({ jenkinsUrl }) => {
           mantisLoading={mantisLoading}
           entries={entries.android}
           onAddEntry={(payload) => handleAddEntry('android', payload)}
+          onDeleteEntry={(record) => handleDeleteEntry('android', record)}
+          onRefresh={fetchAcceptableRecords}
           jenkinsUrl={jenkinsUrl}
           pageSize={pageSizes.android}
           onPageSizeChange={(size) => setPageSizes((prev) => ({ ...prev, android: size }))}

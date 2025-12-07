@@ -72,6 +72,51 @@ class MongoDBAPI:
             logger.error(f"Error fetching acceptable test records from MongoDB: {e}")
             return []
 
+    def update_acceptable_test_record(self, record_id, updates: dict):
+        """Update an acceptable test record using its primary identifier."""
+        if not record_id or not updates:
+            logger.warning("Skipping acceptable test update due to missing data")
+            return None
+
+        normalized_id = record_id
+        if isinstance(record_id, dict):
+            normalized_id = record_id.get("$oid") or record_id.get("oid")
+
+        update_body = {
+            "filter": {"_id": normalized_id or record_id},
+            "update": {"$set": updates},
+        }
+
+        url = self._url(f"update?db={self.db}&collection=acceptable_tests")
+        try:
+            response = requests.put(url, json=update_body)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error updating acceptable test record: {e}")
+            return None
+
+    def delete_acceptable_test_record(self, record_id=None, name=None):
+        """Delete an acceptable test record by _id or name."""
+        if not record_id and not name:
+            logger.warning("No identifier provided for acceptable test deletion")
+            return None
+
+        normalized_id = record_id
+        if isinstance(record_id, dict):
+            normalized_id = record_id.get("$oid") or record_id.get("oid")
+
+        filter_body = {"_id": normalized_id} if record_id else {"name": name}
+        delete_body = {"filter": filter_body}
+        url = self._url(f"delete?db={self.db}&collection=acceptable_tests")
+        try:
+            response = requests.delete(url, json=delete_body)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error deleting acceptable test record: {e}")
+            return None
+
     def get_res_of_build_number(self, job_name, build_num):
         """Fetch all job names from the MongoDB collection."""
         filter_json = json.dumps(f"name={job_name}")
