@@ -31,7 +31,9 @@ import { API_URL } from '../constants';
 
 const { Title, Text } = Typography;
 
-const buildMantisLink = issue?.url || `https://mantis.fortinet.com/bug_view_page.php?bug_id=${issue?.issue_id || issue?.id}`;
+const buildMantisLink = (issue) =>
+  issue?.url || `https://mantis.fortinet.com/bug_view_page.php?bug_id=${issue?.issue_id || issue?.id}`;
+
 
 const defaultPagination = {
   pageSize: 5,
@@ -195,7 +197,7 @@ const PreFlightSection = ({
         environment: 'Prod',
         platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
         parameters: {
-          RUN_STAGE: 'FortiGate',
+          RUN_STAGE: 'FortiAuthenticator',
           mantis_ids: values.mantisIds,
           build_number: values.buildNumber,
           app_download_url: downloadUrl,

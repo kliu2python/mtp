@@ -1,9 +1,10 @@
 import json
 import urllib
 import requests
-import logging
 
-logger = logging.getLogger(__name__)
+from app.services.logger import get_logger
+
+logger = get_logger()
 
 
 class MongoDBAPI:
