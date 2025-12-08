@@ -21,6 +21,7 @@ import {
   ApartmentOutlined,
   AndroidOutlined,
   CloudDownloadOutlined,
+  FileSearchOutlined,
   LinkOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -28,6 +29,12 @@ import {
 } from '@ant-design/icons';
 import axios from 'axios';
 import { API_URL } from '../constants';
+import {
+  buildAcceptableDetailPath,
+  buildFileUrl,
+  normalizeAcceptableRecords,
+} from '../utils/acceptableTests';
+import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
@@ -37,13 +44,6 @@ const defaultPagination = {
   pageSize: 5,
   showSizeChanger: true,
   pageSizeOptions: ['5', '10', '20'],
-};
-
-const buildFileUrl = (path) => {
-  if (!path) return '';
-  const base = API_URL?.replace(/\/$/, '') || '';
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return `${base}${normalizedPath}`;
 };
 
 const PreFlightSection = ({
@@ -65,6 +65,7 @@ const PreFlightSection = ({
   const [form] = Form.useForm();
   const [fileList, setFileList] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
 
   const columns = useMemo(
     () => [
@@ -154,11 +155,14 @@ const PreFlightSection = ({
                 Delete
               </Button>
             </Popconfirm>
+            <Button type="link" icon={<FileSearchOutlined />} onClick={() => navigate(record.detailPath)}>
+              Detail
+            </Button>
           </Space>
         ),
       },
     ],
-    [jenkinsUrl, onDeleteEntry],
+    [jenkinsUrl, navigate, onDeleteEntry],
   );
 
   const handleSubmit = async (values) => {
@@ -386,63 +390,7 @@ const PreFlight = ({ jenkinsUrl }) => {
     try {
       const { data } = await axios.get(`${API_URL}/api/jenkins/run/acceptable-tests`);
       const records = data?.results || data || [];
-
-      const normalized = records.reduce(
-        (acc, record) => {
-          const params = record.build_parameters || {};
-          const platformKey = (record.platform || '').toLowerCase().includes('ios') ? 'ios' : 'android';
-          const mantisIds =
-            record.resolved_mantis_ids || record.mantis_ids || params.mantis_ids || [];
-          const mantisEntries = Array.isArray(mantisIds)
-            ? mantisIds.map((id) => ({
-                value: id,
-                label: `#${id}`,
-                url: buildMantisLink({ issue_id: id }),
-              }))
-            : [];
-
-          const buildNumber =
-            record.build_number ||
-            params.build_number ||
-            params.buildNumber ||
-            params.build ||
-            params.build_num ||
-            record.started_at ||
-            'N/A';
-          const downloadUrl = record.download_url || params.app_download_url || params.download_url;
-          const fileName =
-            record.app_file ||
-            params.ftm_ipa_version ||
-            params.ftm_apk_version ||
-            params.ftm_ipa ||
-            params.ftm_apk ||
-            params.ftm_build_version ||
-            params.ftm_build ||
-            record.name ||
-            'N/A';
-          const rawId = record._id?.$oid || record._id;
-          const recordId = rawId || record.name || `${platformKey}-${record.build_url || Date.now()}`;
-
-          const entry = {
-            id: recordId,
-            rawId,
-            name: record.name,
-            platform: platformKey,
-            fileName,
-            buildNumber,
-            mantis: mantisEntries,
-            downloadUrl,
-            jenkinsUrl: record.build_url,
-            status: (record.res || record.status || 'RUNNING').toString().toUpperCase(),
-          };
-
-          acc[platformKey] = [...acc[platformKey], entry];
-          return acc;
-        },
-        { ios: [], android: [] },
-      );
-
-      setEntries(normalized);
+      setEntries(normalizeAcceptableRecords(records));
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load acceptable test records', error);
@@ -458,13 +406,15 @@ const PreFlight = ({ jenkinsUrl }) => {
   }, []);
 
   const handleAddEntry = (platform, payload) => {
+    const recordId = `${platform}-${Date.now()}`;
     setEntries((prev) => ({
       ...prev,
       [platform]: [
         {
-          id: `${platform}-${Date.now()}`,
+          id: recordId,
           platform,
           status: (payload.status || 'RUNNING').toString().toUpperCase(),
+          detailPath: buildAcceptableDetailPath(platform, recordId),
           ...payload,
         },
         ...prev[platform],
