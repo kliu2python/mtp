@@ -31,6 +31,10 @@ console.log(API_URL)
 // Use backend proxy to avoid mixed content errors
 export const DEVICE_NODES_API_BASE_URL = `${API_URL}/api/device/nodes/proxy`;
 
+export const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0';
+
+export const COPYRIGHT_YEAR = Math.max(new Date().getFullYear(), 2025);
+
 const getJenkinsCloudApiUrl = () => {
   const raw = import.meta.env.VITE_JENKINS_CLOUD_API_URL || `${API_URL}/api/jenkins`;
 

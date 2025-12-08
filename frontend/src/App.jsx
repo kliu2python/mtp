@@ -21,9 +21,9 @@ import Files from './components/Files';
 import Settings from './components/Settings';
 import Mantis from './components/Mantis';
 import PreFlight from './components/PreFlight';
-import { API_URL } from './constants';
+import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
-const { Content, Sider } = Layout;
+const { Content, Footer, Sider } = Layout;
 
 function MenuContent({ collapsed, settings }) {
   const location = useLocation();
@@ -177,6 +177,9 @@ function App() {
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>
+          <Footer style={{ textAlign: 'center', background: '#fff' }}>
+            Mobile Test Pilot v{APP_VERSION} · © {COPYRIGHT_YEAR} Fortinet. All rights reserved.
+          </Footer>
         </Layout>
       </Layout>
     </Router>
