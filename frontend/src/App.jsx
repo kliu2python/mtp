@@ -21,6 +21,7 @@ import Files from './components/Files';
 import Settings from './components/Settings';
 import Mantis from './components/Mantis';
 import PreFlight from './components/PreFlight';
+import AcceptableTestDetail from './components/AcceptableTestDetail';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -174,6 +175,7 @@ function App() {
               <Route path="/files" element={<Files />} />
               <Route path="/mantis" element={<Mantis />} />
               <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
+              <Route path="/preflight/acceptable/:platform/:id" element={<AcceptableTestDetail />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>
