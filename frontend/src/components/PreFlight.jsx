@@ -101,20 +101,6 @@ const PreFlightSection = ({
         },
       },
       {
-        title: 'Resolved Mantis IDs',
-        dataIndex: 'mantis',
-        key: 'mantis',
-        render: (mantis = []) => (
-          <Space size={[8, 8]} wrap>
-            {mantis.map((issue) => (
-              <a key={issue.value} href={issue.url} target="_blank" rel="noreferrer">
-                #{issue.value}
-              </a>
-            ))}
-          </Space>
-        ),
-      },
-      {
         title: 'Jenkins Job',
         dataIndex: 'jenkinsUrl',
         key: 'jenkinsUrl',
@@ -199,7 +185,7 @@ const PreFlightSection = ({
 
       const payload = {
         environment: 'Prod',
-        platforms: [platformKey === 'ios' ? 'ios16' : 'android15'],
+        platforms: [platformKey === 'ios' ? 'ios17' : 'android15'],
         parameters: {
           RUN_STAGE: 'FortiAuthenticator',
           mantis_ids: values.mantisIds,

@@ -2,6 +2,8 @@ import json
 import urllib
 import requests
 
+from bson.objectid import ObjectId
+
 from app.services.logger import get_logger
 
 logger = get_logger()
@@ -107,7 +109,7 @@ class MongoDBAPI:
         if isinstance(record_id, dict):
             normalized_id = record_id.get("$oid") or record_id.get("oid")
 
-        filter_body = {"_id": normalized_id} if record_id else {"name": name}
+        filter_body = {"_id": str(ObjectId(normalized_id))} if record_id else {"name": name}
         delete_body = {"filter": filter_body}
         url = self._url(f"delete?db={self.db}&collection=acceptable_tests")
         try:
