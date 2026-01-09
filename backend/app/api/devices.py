@@ -13,10 +13,12 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.device import TestDevice, DeviceStatus, DeviceType
 from app.services.device_manager import device_manager
+from app.services.device_stream_service import device_stream_service
 from pydantic import BaseModel
 
-router = APIRouter()
 logger = logging.getLogger(__name__)
+
+router = APIRouter()
 
 
 class DeviceCreate(BaseModel):
@@ -211,23 +213,23 @@ async def check_device_health(device_id: str, db: Session = Depends(get_db)):
     device = db.query(TestDevice).filter(TestDevice.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     try:
         health = await device_manager.health_check(device)
-        
+
         # Update device info
         device.battery_level = health.get("battery_level", device.battery_level)
         device.storage_free = health.get("storage_free", device.storage_free)
         device.last_heartbeat = datetime.utcnow()
-        
+
         if health.get("online"):
             if device.status == DeviceStatus.OFFLINE:
                 device.status = DeviceStatus.AVAILABLE
         else:
             device.status = DeviceStatus.OFFLINE
-        
+
         db.commit()
-        
+
         return health
     except Exception as e:
         return {
@@ -237,96 +239,58 @@ async def check_device_health(device_id: str, db: Session = Depends(get_db)):
         }
 
 
+@router.get("/stream/list")
+async def get_stream_devices():
+    """Get devices from stream cache (read-only)"""
+    logger.info("Stream list endpoint called")
+
+    devices = await device_stream_service.get_cached_devices()
+    logger.info(f"Retrieved {len(devices)} devices from cache")
+
+    normalized = []
+    for device in devices:
+        info = device.get("info", {})
+
+        is_available = device.get("available", False) and not device.get("in_use", False)
+        status = "available" if is_available else "unavailable"
+
+        normalized.append({
+            "id": info.get("udid", ""),
+            "name": info.get("name", "Unknown Device"),
+            "platform": "iOS" if info.get("os") == "ios" else "Android",
+            "os_version": info.get("os_version", "Unknown"),
+            "status": status,
+            "type": info.get("device_type", "real"),
+            "host": info.get("host", ""),
+            "port": "",
+        })
+
+    return {
+        "devices": normalized,
+        "summary": {
+            "total": len(normalized),
+            "available": sum(1 for d in normalized if d["status"] == "available"),
+            "unavailable": sum(1 for d in normalized if d["status"] != "available"),
+        },
+    }
+
+
+@router.get("/stream/cache-status")
+async def get_cache_status():
+    """Get stream cache health information"""
+    return device_stream_service.get_cache_status()
+
+
 @router.get("/stats/summary")
 async def get_device_stats(db: Session = Depends(get_db)):
-    """Get device statistics from device nodes service"""
+    """Get device statistics (stream first, DB fallback)"""
 
-    nodes_data = []
+    stream_summary = await device_stream_service.get_device_summary()
 
-    # Try to fetch live device information from the device nodes API
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{settings.DEVICE_NODES_API_URL}/nodes",
-                timeout=10.0
-            )
-            response.raise_for_status()
-            payload = response.json()
+    if stream_summary.get("total", 0) > 0:
+        return stream_summary
 
-            if isinstance(payload, list):
-                nodes_data = payload
-            elif isinstance(payload, dict):
-                nodes_data = payload.get("nodes") or payload.get("data") or []
-                if isinstance(nodes_data, dict):
-                    nodes_data = nodes_data.get("nodes", [])
-            else:
-                nodes_data = []
-    except Exception as exc:
-        logger.error(f"Failed to fetch device nodes stats: {exc}")
-
-    # If we have live data from device nodes, use it to build stats
-    if nodes_data:
-        total = len(nodes_data)
-        available = 0
-        busy = 0
-        offline = 0
-        ios_count = 0
-        android_count = 0
-
-        for node in nodes_data:
-            # Platform detection
-            platform = (
-                node.get("platform")
-                or node.get("os")
-                or node.get("deviceOs")
-                or node.get("osName")
-                or ""
-            ).lower()
-
-            if "ios" in platform:
-                ios_count += 1
-            elif "android" in platform:
-                android_count += 1
-
-            # Status detection
-            status = (node.get("status") or node.get("state") or "").lower()
-            in_use = any([
-                node.get("using"),
-                node.get("inUse"),
-                node.get("in_use"),
-                node.get("owner")
-            ])
-            ready = any([
-                node.get("ready"),
-                node.get("available"),
-                node.get("isReady"),
-                status in ["available", "ready", "online", "idle"]
-            ])
-            present = node.get("present", True)
-
-            if in_use or status in ["busy", "in_use", "reserved", "using"]:
-                busy += 1
-            elif not present or status in ["offline", "disconnected", "error"]:
-                offline += 1
-            elif ready:
-                available += 1
-            else:
-                offline += 1
-
-        return {
-            "total": total,
-            "by_status": {
-                "available": available,
-                "busy": busy,
-                "offline": offline
-            },
-            "by_platform": {
-                "iOS": ios_count,
-                "Android": android_count
-            }
-        }
-
-    # Fallback to database values if live stats are unavailable
+    # ---------- DB fallback ----------
     total = db.query(TestDevice).count()
     available = db.query(TestDevice).filter(
         TestDevice.status == DeviceStatus.AVAILABLE
@@ -346,10 +310,23 @@ async def get_device_stats(db: Session = Depends(get_db)):
         "by_status": {
             "available": available,
             "busy": busy,
-            "offline": offline
+            "offline": offline,
         },
         "by_platform": {
             "iOS": ios_count,
-            "Android": android_count
-        }
+            "Android": android_count,
+        },
+        "source": "database",
+    }
+
+
+# -------- DEBUG / LOCAL ONLY --------
+
+@router.post("/stream/populate-sample")
+async def populate_sample_data():
+    """Populate stream cache with sample data (debug only)"""
+    devices = device_stream_service.populate_with_sample_data()
+    return {
+        "success": True,
+        "count": len(devices),
     }

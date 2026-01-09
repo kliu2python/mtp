@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Row, Statistic, Table, Tag, message } from 'antd';
 import axios from 'axios';
-import { DEVICE_NODES_API_BASE_URL } from '../constants';
+import { API_URL } from '../constants';
 
 const Devices = () => {
   const [devices, setDevices] = useState([]);
@@ -14,47 +14,13 @@ const Devices = () => {
 
   const fetchDevices = async () => {
     try {
-      const nodesResponse = await axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`);
+      // Fetch devices from the new stream endpoint
+      const response = await axios.get(`${API_URL}/api/devices/stream/list`);
 
-      const nodesData = nodesResponse.data || {};
-      const nodes = Object.values(nodesData);
+      const { devices: devicesData, summary: summaryData } = response.data;
 
-      const normalizedDevices = nodes.map((node) => {
-        const nodeId = node?.id || node?.deviceName || node?.name;
-        const nodeStatus = node?.status?.toLowerCase();
-        const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
-        const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
-        const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
-        const isAvailableFromStatus =
-          nodeStatus === 'online' ? true : nodeStatus === 'offline' || nodeStatus === 'busy' ? false : null;
-        const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
-
-        const availabilitySources = [isAvailableFromStatus, isAvailableFromSessions];
-        const isAvailable = availabilitySources.find((value) => value !== null) ?? false;
-        const derivedStatus = isAvailable ? 'available' : 'not available';
-
-        return {
-          id: nodeId,
-          name: node?.deviceName || nodeId,
-          platform: node?.platform || 'Unknown',
-          os_version: node?.platform_version || 'Unknown',
-          status: derivedStatus,
-          type: node?.type || 'Unknown',
-          host: node?.host,
-          port: node?.port,
-        };
-      });
-
-      const availableCount = normalizedDevices.filter((device) => device.status === 'available').length;
-      const unavailableCount = normalizedDevices.length - availableCount;
-      const totalCount = normalizedDevices.length;
-
-      setSummary({
-        total: totalCount,
-        available: availableCount,
-        unavailable: unavailableCount,
-      });
-      setDevices(normalizedDevices);
+      setSummary(summaryData);
+      setDevices(devicesData);
       setLoading(false);
     } catch (error) {
       message.error('Failed to fetch devices');

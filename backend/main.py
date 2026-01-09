@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import uvicorn
 from typing import List
+import asyncio
 
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -95,26 +96,28 @@ def _ensure_optional_columns():
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    print("🚀 Starting Test Platform...")
+    print("Starting Test Platform...")
 
     # Create database tables
     Base.metadata.create_all(bind=engine)
     _ensure_optional_columns()
-    print("✅ Database initialized")
+    print("Database initialized")
 
     # Start background services
     from app.services.device_monitor import device_monitor
+    from app.services.device_stream_service import device_stream_service
     from app.services.vm_monitor import vm_monitor
 
-    # asyncio.create_task(device_monitor.start())
+    device_stream_service.run_background()
+    device_monitor.run_background()
     # asyncio.create_task(vm_monitor.start())
 
-    print("✅ Background services started")
+    print("Background services started")
 
     yield
 
     # Shutdown
-    print("🛑 Shutting down Test Platform...")
+    print("Shutting down Test Platform...")
 
 
 app = FastAPI(

@@ -37,7 +37,7 @@ import axios from 'axios';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import { API_URL, DEVICE_NODES_API_BASE_URL, JENKINS_CLOUD_API_URL } from '../constants';
+import { API_URL, JENKINS_CLOUD_API_URL } from '../constants';
 
 const VMs = () => {
   const [vms, setVms] = useState([]);
@@ -803,69 +803,33 @@ const VMs = () => {
   const fetchAvailableDevices = async (platformFilter = selectedPlatform) => {
     setLoadingDevices(true);
     try {
-      const nodesResponse = await axios.get(`${DEVICE_NODES_API_BASE_URL}/nodes`);
+      // Fetch devices from the new stream endpoint
+      const response = await axios.get(`${API_URL}/api/devices/stream/list`);
 
-      const nodesData = nodesResponse.data || {};
-      const nodes = Object.values(nodesData);
+      const { devices: devicesData } = response.data;
 
       const normalizedPlatform = platformFilter ? platformFilter.toLowerCase() : null;
 
-      const filteredNodes = normalizedPlatform
-        ? nodes.filter((node) => (node?.platform || '').toLowerCase().includes(normalizedPlatform))
-        : nodes;
+      const filteredDevices = normalizedPlatform
+        ? devicesData.filter((device) => (device?.platform || '').toLowerCase().includes(normalizedPlatform))
+        : devicesData;
 
-      const normalizeAvailabilitySignal = (value) => {
-        if (value === true) return true;
-        if (value === false) return false;
-        return null;
-      };
+      const options = filteredDevices.map((device) => {
+        const deviceId = device?.id || device?.name;
+        const isAvailable = device?.status === 'available';
 
-      const resolveStatusAvailability = (rawStatus) => {
-        if (!rawStatus) return null;
-        const status = String(rawStatus).toLowerCase();
-        if (['online', 'available', 'idle', 'ready'].some((flag) => status.includes(flag))) return true;
-        if (['offline', 'busy', 'unavailable', 'error'].some((flag) => status.includes(flag))) return false;
-        return null;
-      };
-
-      const options = filteredNodes.map((node) => {
-        const nodeId = node?.id || node?.deviceName || node?.name;
-        const nodeStatus = node?.status;
-        const activeSessions = Number(node?.active_sessions ?? node?.activeSessions);
-        const maxSessions = Number(node?.max_sessions ?? node?.maxSessions);
-        const hasSessionLimits = Number.isFinite(activeSessions) && Number.isFinite(maxSessions);
-        const isAvailableFromStatus = resolveStatusAvailability(nodeStatus);
-        const isAvailableFromSessions = hasSessionLimits ? activeSessions < maxSessions : null;
-
-        const availabilitySignals = [
-          isAvailableFromStatus,
-          isAvailableFromSessions
-        ].filter((value) => value !== null);
-
-        const hasConflictingSignals = availabilitySignals.includes(true) && availabilitySignals.includes(false);
-        const isAvailable =
-          availabilitySignals.length > 0
-            ? availabilitySignals.some(Boolean)
-            : true;
-
-        const derivedStatus = hasConflictingSignals
-          ? 'check status'
-          : isAvailable
-            ? 'available'
-            : 'not available';
-
-        const labelParts = [node?.deviceName || nodeId, node?.platform, node?.platform_version]
+        const labelParts = [device?.name || deviceId, device?.platform, device?.os_version]
           .filter(Boolean)
           .join(' • ');
 
         return {
-          value: nodeId,
-          label: labelParts || nodeId,
+          value: deviceId,
+          label: labelParts || deviceId,
           data: {
-            platform: node?.platform || 'Unknown',
-            version: node?.platform_version || 'Unknown',
+            platform: device?.platform || 'Unknown',
+            version: device?.os_version || 'Unknown',
             available: isAvailable,
-            status: derivedStatus,
+            status: device?.status || 'unknown',
           },
           disabled: !isAvailable,
         };
