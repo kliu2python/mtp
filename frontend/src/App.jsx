@@ -8,6 +8,7 @@ import {
   CloudServerOutlined,
   DashboardOutlined,
   FileOutlined,
+  KeyOutlined,
   MobileOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -22,6 +23,7 @@ import Settings from './components/Settings';
 import Mantis from './components/Mantis';
 import PreFlight from './components/PreFlight';
 import AcceptableTestDetail from './components/AcceptableTestDetail';
+import FortiTokenDecoder from './components/FortiTokenDecoder';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -36,6 +38,7 @@ function MenuContent({ collapsed, settings }) {
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
+    { key: '/fortitoken-decoder', icon: <KeyOutlined />, label: 'Token Decoder', path: '/fortitoken-decoder' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
@@ -173,6 +176,7 @@ function App() {
               <Route path="/devices" element={<Devices />} />
               <Route path="/apks" element={<ApkBrowser />} />
               <Route path="/files" element={<Files />} />
+              <Route path="/fortitoken-decoder" element={<FortiTokenDecoder />} />
               <Route path="/mantis" element={<Mantis />} />
               <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
               <Route path="/preflight/acceptable/:platform/:id" element={<AcceptableTestDetail />} />
