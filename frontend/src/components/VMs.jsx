@@ -93,6 +93,10 @@ const VMs = () => {
   const [savingCloudService, setSavingCloudService] = useState(false);
   const [refreshingTestbed, setRefreshingTestbed] = useState(false);
   const [appUploadLoading, setAppUploadLoading] = useState(false);
+  const [updateCloudModalOpen, setUpdateCloudModalOpen] = useState(false);
+  const [updatingCloudService, setUpdatingCloudService] = useState(false);
+  const [editingCloudService, setEditingCloudService] = useState(null);
+  const [updateCloudForm] = Form.useForm();
 
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
@@ -579,6 +583,150 @@ const VMs = () => {
     } catch (error) {
       message.error('Failed to remove cloud service');
     }
+  };
+
+  const checkCloudInfo = async (service) => {
+    let sessionId = null;
+    let loadingModal;
+
+    try {
+      // Show loading modal
+      loadingModal = Modal.info({
+        title: 'Checking Cloud Service Info',
+        content: 'Please wait while we check the cloud service configuration...',
+        icon: null,
+        okText: 'Cancel',
+        onOk: () => {},
+        closable: true,
+      });
+
+      // Step 1: Login to FortiToken Cloud Ops service
+      const loginPayload = {
+        "jumpbox_host": "10.160.41.4",
+        "jumpbox_user": "labuser",
+        "jumpbox_password": "fortinet",
+        "target_host": service.server_ip || "10.160.83.46",
+        "target_user": "cloud-user",
+        "target_key_file": "id_rsa_jenkins"
+      };
+
+      const loginResponse = await axios.post(`${API_URL}/api/cloud/fic/auth/login`, loginPayload);
+      sessionId = loginResponse.data.session_id;
+
+      // Step 2: Set up authorization header for subsequent requests
+      const authHeader = { Authorization: `Bearer ${sessionId}` };
+
+      // Step 3: Fetch token format version
+      const tokenFormatResponse = await axios.get(`${API_URL}/api/cloud/fic/token-format`, {
+        headers: authHeader
+      });
+
+      // Step 4: Fetch sandbox status
+      const sandboxResponse = await axios.get(`${API_URL}/api/cloud/fic/push/sandbox`, {
+        headers: authHeader
+      });
+
+      // Close loading modal
+      loadingModal.destroy();
+
+      // Step 5: Validate responses and display information
+      // Handle token format response (could be array or single object)
+      let tokenFormatData = tokenFormatResponse.data;
+      if (!Array.isArray(tokenFormatData)) {
+        tokenFormatData = [tokenFormatData];
+      }
+
+      // Handle sandbox response (could be array or single object)
+      let sandboxData = sandboxResponse.data;
+      if (!Array.isArray(sandboxData)) {
+        sandboxData = [sandboxData];
+      }
+
+      // Validate that all files have the same token_format_version
+      const tokenFormats = tokenFormatData.map(item => item.token_format_version).filter(Boolean);
+      const uniqueTokenFormats = [...new Set(tokenFormats)];
+
+      // Validate that all files have the same use_sandbox value
+      const sandboxValues = sandboxData.map(item => item.use_sandbox).filter(Boolean);
+      const uniqueSandboxValues = [...new Set(sandboxValues)];
+
+      // Check for errors
+      const hasTokenFormatError = uniqueTokenFormats.length !== 1;
+      const hasSandboxError = uniqueSandboxValues.length !== 1;
+
+      if (hasTokenFormatError || hasSandboxError) {
+        let errorMessage = 'Configuration mismatch detected:\n';
+        if (hasTokenFormatError) {
+          errorMessage += `• Token formats differ across files (${tokenFormats.join(', ')}).\n`;
+        }
+        if (hasSandboxError) {
+          errorMessage += `• Sandbox settings differ across files (${sandboxValues.join(', ')}).\n`;
+        }
+
+        Modal.error({
+          title: 'Cloud Service Configuration Error',
+          content: (
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {errorMessage}
+              <p>Please check your cloud service configuration.</p>
+            </div>
+          ),
+          width: 600,
+        });
+      } else {
+        // All values are consistent, display the information
+        const tokenFormat = uniqueTokenFormats[0] || 'N/A';
+        const sandboxStatus = uniqueSandboxValues[0] || 'N/A';
+
+        Modal.success({
+          title: 'Cloud Service Information',
+          content: (
+            <div>
+              <p><strong>Token Format:</strong> {tokenFormat}</p>
+              <p><strong>Sandbox Status:</strong> {sandboxStatus}</p>
+              <p>All configuration files are consistent.</p>
+            </div>
+          ),
+          width: 500,
+        });
+      }
+    } catch (error) {
+      console.error('Error checking cloud info:', error);
+
+      // Close loading modal if it exists
+      if (loadingModal) {
+        loadingModal.destroy();
+      }
+
+      Modal.error({
+        title: 'Failed to Check Cloud Service Info',
+        content: (
+          <div>
+            <p>An error occurred while checking the cloud service information:</p>
+            <p style={{ color: 'red' }}>{error.message || 'Unknown error'}</p>
+            <p>Please try again later.</p>
+          </div>
+        ),
+        width: 500,
+      });
+    } finally {
+      // Step 6: Logout if we have a session
+      if (sessionId) {
+        try {
+          await axios.post(`${API_URL}/api/cloud/fic/auth/logout`, {}, {
+            headers: { Authorization: `Bearer ${sessionId}` }
+          });
+        } catch (logoutError) {
+          // Ignore logout errors
+        }
+      }
+    }
+  };
+
+  const updateCloudInfo = async (service) => {
+    // Open the update info modal
+    setEditingCloudService(service);
+    setUpdateCloudModalOpen(true);
   };
 
   const openCloudTestModal = (service) => {
@@ -1106,6 +1254,24 @@ const VMs = () => {
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
+          <Tooltip title="Check cloud service information">
+            <Button
+              size="small"
+              icon={<GlobalOutlined />}
+              onClick={() => checkCloudInfo(record)}
+            >
+              Check Info
+            </Button>
+          </Tooltip>
+          <Tooltip title="Update cloud service information">
+            <Button
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => updateCloudInfo(record)}
+            >
+              Update Info
+            </Button>
+          </Tooltip>
           <Tooltip title="Run automated tests with Docker execution">
             <Button
               size="small"
@@ -1950,6 +2116,110 @@ const VMs = () => {
         ) : (
           <Empty description="No previous test configuration available" />
         )}
+      </Modal>
+
+      <Modal
+        title="Update Cloud Service Information"
+        open={updateCloudModalOpen}
+        onCancel={() => {
+          setUpdateCloudModalOpen(false);
+          updateCloudForm.resetFields();
+          setEditingCloudService(null);
+        }}
+        onOk={async () => {
+          let sessionId = null;
+
+          try {
+            const values = await updateCloudForm.validateFields();
+            setUpdatingCloudService(true);
+
+            // Step 1: Login to FortiToken Cloud Ops service
+            const loginPayload = {
+              "jumpbox_host": "10.160.41.4",
+              "jumpbox_user": "labuser",
+              "jumpbox_password": "fortinet",
+              "target_host": editingCloudService?.server_ip || "10.160.83.46",
+              "target_user": "cloud-user",
+              "target_key_file": "id_rsa_jenkins"
+            };
+
+            const loginResponse = await axios.post(`${API_URL}/api/cloud/fic/auth/login`, loginPayload);
+            sessionId = loginResponse.data.session_id;
+
+            // Step 2: Set up authorization header for subsequent requests
+            const authHeader = { Authorization: `Bearer ${sessionId}` };
+
+            // Step 3: Update token format version if provided
+            if (values.token_format_version) {
+              await axios.put(`${API_URL}/api/cloud/fic/token-format`,
+                { format: values.token_format_version },
+                { headers: authHeader }
+              );
+            }
+
+            // Step 4: Update sandbox mode if provided
+            if (values.use_sandbox) {
+              await axios.put(`${API_URL}/api/cloud/fic/push/sandbox`,
+                { value: values.use_sandbox },
+                { headers: authHeader }
+              );
+            }
+
+            // Update the cloud service information in the UI
+            const updatedServices = cloudServices.map(service =>
+              service.id === editingCloudService?.id
+                ? { ...service, ...values }
+                : service
+            );
+
+            setCloudServices(updatedServices);
+            setUpdateCloudModalOpen(false);
+            updateCloudForm.resetFields();
+            setEditingCloudService(null);
+            message.success('Cloud service information updated successfully');
+          } catch (error) {
+            console.error('Error updating cloud service:', error);
+            message.error('Failed to update cloud service information');
+          } finally {
+            setUpdatingCloudService(false);
+            // Step 5: Logout if we have a session
+            if (sessionId) {
+              try {
+                await axios.post(`${API_URL}/api/cloud/fic/auth/logout`, {}, {
+                  headers: { Authorization: `Bearer ${sessionId}` }
+                });
+              } catch (logoutError) {
+                // Ignore logout errors
+              }
+            }
+          }
+        }}
+        confirmLoading={updatingCloudService}
+        width={600}
+      >
+        <Form form={updateCloudForm} layout="vertical">
+          <Form.Item
+            label="Token Format Version"
+            name="token_format_version"
+            tooltip="Version of the token format to use"
+          >
+            <Select placeholder="Select version">
+              <Select.Option value="v5">v5</Select.Option>
+              <Select.Option value="v6">v6</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="Sandbox Mode"
+            name="use_sandbox"
+            tooltip="Enable or disable sandbox mode"
+          >
+            <Radio.Group>
+              <Radio value="true">Enabled</Radio>
+              <Radio value="false">Disabled</Radio>
+            </Radio.Group>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

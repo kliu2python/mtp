@@ -16,12 +16,13 @@ import './App.css';
 import Dashboard from './components/Dashboard';
 import VMs from './components/VMs';
 import Devices from './components/Devices';
-import ApkBrowser from './components/ApkBrowser';
 import Files from './components/Files';
 import Settings from './components/Settings';
 import Mantis from './components/Mantis';
 import PreFlight from './components/PreFlight';
 import AcceptableTestDetail from './components/AcceptableTestDetail';
+import ReleaseTestsByVersion from './components/ReleaseTestsByVersion';
+import ReleaseTestDetails from './components/ReleaseTestDetails';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -31,11 +32,11 @@ function MenuContent({ collapsed, settings }) {
 
   const menuItems = [
     { key: '/', icon: <DashboardOutlined />, label: 'Dashboard', path: '/' },
-    { key: '/vms', icon: <CloudServerOutlined />, label: 'Testbed', path: '/vms' },
+    { key: '/testbed', icon: <CloudServerOutlined />, label: 'Testbed', path: '/testbed' },
     { key: '/preflight', icon: <SafetyCertificateOutlined />, label: 'PreFlight', path: '/preflight' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
-    { key: '/apks', icon: <AppstoreOutlined />, label: 'APK Manager', path: '/apks' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
+    { key: '/release-tests', icon: <AppstoreOutlined />, label: 'Release Tests', path: '/release-tests' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
@@ -169,13 +170,15 @@ function App() {
           <Content style={{ margin: '24px 16px', padding: 24, background: '#fff' }}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
-              <Route path="/vms" element={<VMs />} />
+              <Route path="/testbed" element={<VMs />} />
               <Route path="/devices" element={<Devices />} />
-              <Route path="/apks" element={<ApkBrowser />} />
               <Route path="/files" element={<Files />} />
               <Route path="/mantis" element={<Mantis />} />
               <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
               <Route path="/preflight/acceptable/:platform/:id" element={<AcceptableTestDetail />} />
+              <Route path="/release-tests" element={<ReleaseTestsByVersion />} />
+              <Route path="/release-tests/details/:platform" element={<ReleaseTestDetails />} />
+              <Route path="/release-tests/details/:platform/:version" element={<ReleaseTestDetails />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>

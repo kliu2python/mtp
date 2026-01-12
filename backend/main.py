@@ -17,7 +17,6 @@ from app.api import (
     devices,
     files,
     webhooks,
-    apks,
     stf,
     ai_analysis,
     auth,
@@ -27,6 +26,7 @@ from app.api import (
     settings_api,
     mantis,
     cloud,
+    release_tests,
 )
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
@@ -35,6 +35,7 @@ from sqlalchemy import inspect, text
 from app.models.user import User
 from app.models.settings import PlatformSettings
 from app.models.cloud_service import CloudService
+from app.models.release_test import ReleaseCandidateTest
 
 
 def _ensure_optional_columns():
@@ -146,7 +147,6 @@ app.include_router(cloud.router, prefix="/api/cloud", tags=["Cloud"])
 app.include_router(vms.router, prefix="/api/vms", tags=["VMs"])
 app.include_router(devices.router, prefix="/api/devices", tags=["Devices"])
 app.include_router(files.router, prefix="/api/files", tags=["Files"])
-app.include_router(apks.router, prefix="/api/apks", tags=["APKs"])
 app.include_router(stf.router, prefix="/api/stf", tags=["STF"])
 app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
@@ -154,6 +154,7 @@ app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Prox
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
+app.include_router(release_tests.router, prefix="/api", tags=["Release Tests"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

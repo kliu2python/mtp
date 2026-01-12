@@ -1,5 +1,8 @@
 FROM node:18-alpine as builder
 
+# Declare build arguments
+ARG VITE_APP_VERSION
+
 WORKDIR /app
 
 # Copy package files
@@ -11,8 +14,8 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Build the app
-RUN npm run build
+# Build the app with environment variables
+RUN VITE_APP_VERSION=${VITE_APP_VERSION} npm run build
 
 # Production stage
 FROM nginx:alpine
