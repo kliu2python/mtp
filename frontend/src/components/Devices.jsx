@@ -114,7 +114,13 @@ const Devices = () => {
           Refresh Nodes
         </Button>
       </div>
-      <Table dataSource={devices} columns={columns} rowKey="id" loading={loading} />
+      <Table
+        dataSource={devices}
+        columns={columns}
+        rowKey="id"
+        loading={loading}
+        pagination={{ pageSize: 8 }}
+      />
     </div>
   );
 };

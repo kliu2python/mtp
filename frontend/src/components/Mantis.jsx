@@ -281,7 +281,7 @@ const Mantis = () => {
           )}
         </Space>
       ),
-      width: 120,
+      width: 100,
     },
     {
       title: 'Summary',
@@ -295,7 +295,7 @@ const Mantis = () => {
       dataIndex: 'category',
       key: 'category',
       sorter: true,
-      width: 140,
+      width: 120,
     },
     {
       title: 'Status',
@@ -307,7 +307,7 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 140,
+      width: 100,
     },
     {
       title: 'Priority',
@@ -319,7 +319,7 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 140,
+      width: 100,
     },
     {
       title: 'Severity',
@@ -331,14 +331,14 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 140,
+      width: 100,
     },
     {
       title: 'Submitted',
       dataIndex: 'date_submitted',
       key: 'date_submitted',
       sorter: true,
-      width: 200,
+      width: 160,
       render: (value) => formatDate(value),
     },
   ];
@@ -362,13 +362,6 @@ const Mantis = () => {
         ))}
       </div>
 
-      <Space align="center" size={8}>
-        <ClockCircleOutlined />
-        <Text type="secondary">
-          Latest update: {formatDate(lastUpdated)}
-        </Text>
-      </Space>
-
       <Card
         title={
           <Space>
@@ -377,13 +370,21 @@ const Mantis = () => {
           </Space>
         }
         extra={
-          <Space>
-            <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading}>
-              Refresh
-            </Button>
-            <Button icon={<CloseCircleOutlined />} onClick={handleResetFilters} disabled={loading}>
-              Reset Filters
-            </Button>
+          <Space align="center" size={16}>
+            <Space align="center" size={8}>
+              <ClockCircleOutlined />
+              <Text type="secondary">
+                Latest update: {formatDate(lastUpdated)}
+              </Text>
+            </Space>
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading}>
+                Refresh
+              </Button>
+              <Button icon={<CloseCircleOutlined />} onClick={handleResetFilters} disabled={loading}>
+                Reset Filters
+              </Button>
+            </Space>
           </Space>
         }
       >
@@ -478,10 +479,6 @@ const Mantis = () => {
           })}
         />
 
-        <Divider style={{ marginTop: 0 }} />
-        <Text type="secondary">
-          Click any row to view complete details, including steps to reproduce and bugnotes.
-        </Text>
       </Card>
 
       <DetailDrawer issue={selectedIssue} onClose={() => setSelectedIssue(null)} />
