@@ -40,6 +40,23 @@ class CloudServiceCreate(BaseModel):
         return self
 
 
+class CloudServiceUpdate(BaseModel):
+    """Payload for updating a cloud service entry."""
+
+    name: Optional[str] = None
+    server_ip: Optional[str] = None
+    server_dns: Optional[str] = None
+    client_ip: Optional[str] = None
+    server_version: Optional[str] = None
+
+    @field_validator("server_ip", "server_dns", mode="before")
+    def empty_string_to_none(cls, value: Optional[str]):  # noqa: D401, ANN001
+        """Normalize empty strings to None so they are not persisted."""
+        if value == "":
+            return None
+        return value
+
+
 class FICLoginRequest(BaseModel):
     """Payload for FIC login request"""
     jumpbox_host: str
@@ -161,6 +178,35 @@ async def create_cloud_service(
     )
 
     db.add(service)
+    db.commit()
+    db.refresh(service)
+
+    return {"cloud_service": service.to_dict()}
+
+
+@router.put("/services/{service_id}")
+async def update_cloud_service(
+    service_id: str,
+    payload: CloudServiceUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update a cloud service entry."""
+    service = db.query(CloudService).filter(CloudService.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Cloud service not found")
+
+    # Update fields if provided
+    if payload.name is not None:
+        service.name = payload.name
+    if payload.server_ip is not None:
+        service.server_ip = payload.server_ip
+    if payload.server_dns is not None:
+        service.server_dns = payload.server_dns
+    if payload.client_ip is not None:
+        service.client_ip = payload.client_ip
+    if payload.server_version is not None:
+        service.server_version = payload.server_version
+
     db.commit()
     db.refresh(service)
 

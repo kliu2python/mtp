@@ -98,6 +98,9 @@ const VMs = () => {
   const [editingCloudService, setEditingCloudService] = useState(null);
   const [updateCloudForm] = Form.useForm();
 
+  // Cloud service info cache
+  const [cloudServiceInfoCache, setCloudServiceInfoCache] = useState({});
+
   // Run Previous states
   const [runPreviousModalOpen, setRunPreviousModalOpen] = useState(false);
   const [previousTestConfig, setPreviousTestConfig] = useState(null);
@@ -164,6 +167,16 @@ const VMs = () => {
           });
 
           const latestVersion = data?.version || service.server_version || service.version;
+
+          // Update the service in the database
+          try {
+            await axios.put(`${API_URL}/api/cloud/services/${service.id}`, {
+              server_version: latestVersion,
+            });
+          } catch (updateError) {
+            console.error(`Failed to update cloud service ${service.id}:`, updateError);
+            // Continue anyway, we'll still update the UI
+          }
 
           return {
             ...service,
@@ -586,6 +599,29 @@ const VMs = () => {
   };
 
   const checkCloudInfo = async (service) => {
+    // Check if we have cached information for this service
+    const cacheKey = service.id;
+    const cachedInfo = cloudServiceInfoCache[cacheKey];
+
+    // If we have cached info, show it immediately
+    if (cachedInfo) {
+      Modal.success({
+        title: 'Cloud Service Information (Cached)',
+        content: (
+          <div>
+            <p><strong>Token Format:</strong> {cachedInfo.tokenFormat}</p>
+            <p><strong>Sandbox Status:</strong> {cachedInfo.sandboxStatus}</p>
+            <p>All configuration files are consistent.</p>
+            <p style={{ fontSize: '0.9em', color: '#888' }}>
+              Last updated: {new Date(cachedInfo.timestamp).toLocaleString()}
+            </p>
+          </div>
+        ),
+        width: 500,
+      });
+      return;
+    }
+
     let sessionId = null;
     let loadingModal;
 
@@ -678,6 +714,16 @@ const VMs = () => {
         const tokenFormat = uniqueTokenFormats[0] || 'N/A';
         const sandboxStatus = uniqueSandboxValues[0] || 'N/A';
 
+        // Update cache with new information
+        setCloudServiceInfoCache(prevCache => ({
+          ...prevCache,
+          [cacheKey]: {
+            tokenFormat,
+            sandboxStatus,
+            timestamp: Date.now()
+          }
+        }));
+
         Modal.success({
           title: 'Cloud Service Information',
           content: (
@@ -743,10 +789,15 @@ const VMs = () => {
 
   const hasSshDetails = selectedVm?.ip_address && selectedVm?.ssh_username && selectedVm?.ssh_password;
 
-  const normalizeToHttps = (url) => {
+  const normalizeWebUrl = (url, platform) => {
     try {
       const parsed = new URL(url);
-      parsed.protocol = 'https:';
+      // Use HTTPS for FortiAuthenticator, HTTP for FortiGate and others
+      if (platform === 'FortiAuthenticator') {
+        parsed.protocol = 'https:';
+      } else {
+        parsed.protocol = 'http:';
+      }
       return parsed.toString();
     } catch (error) {
       // If the URL constructor fails, fall back to the raw value.
@@ -756,7 +807,7 @@ const VMs = () => {
 
   const openWebDrawer = (vm) => {
     const baseUrl = vm.web_url || (vm.ip_address ? `http://${vm.ip_address}` : null);
-    const resolvedUrl = baseUrl ? normalizeToHttps(baseUrl) : null;
+    const resolvedUrl = baseUrl ? normalizeWebUrl(baseUrl, vm.platform) : null;
     if (!resolvedUrl) {
       message.warning('No web access URL configured for this VM');
       return;
@@ -1356,28 +1407,29 @@ const VMs = () => {
       >
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Title level={4} style={{ margin: 0 }}>VMs</Typography.Title>
+            <Typography.Title level={4} style={{ margin: 0, fontSize: '16px' }}>VMs</Typography.Title>
+            <Input.Search
+              placeholder="Search VMs"
+              allowClear
+              onChange={(e) => setVmSearch(e.target.value)}
+              style={{ maxWidth: 300, fontSize: '12px' }}
+              value={vmSearch}
+              size="small"
+            />
           </div>
-          <Input.Search
-            placeholder="Search VMs"
-            allowClear
-            onChange={(e) => setVmSearch(e.target.value)}
-            style={{ maxWidth: 300 }}
-            value={vmSearch}
-          />
           <Table
             dataSource={filteredVms}
             columns={columns}
             rowKey="id"
             loading={loading}
-            pagination={{ pageSize: 5 }}
+            pagination={{ pageSize: 4 }}
             style={{ marginTop: 12 }}
           />
 
           <Divider style={{ margin: '12px 0' }} />
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography.Title level={4} style={{ margin: 0 }}>Cloud Services</Typography.Title>
+            <Typography.Title level={4} style={{ margin: 0, fontSize: '16px' }}>Cloud Services</Typography.Title>
           </div>
           <Table
             dataSource={cloudServices}
@@ -2173,6 +2225,17 @@ const VMs = () => {
             );
 
             setCloudServices(updatedServices);
+
+            // Clear cache for this service after successful update
+            const cacheKey = editingCloudService?.id;
+            if (cacheKey) {
+              setCloudServiceInfoCache(prevCache => {
+                const newCache = { ...prevCache };
+                delete newCache[cacheKey];
+                return newCache;
+              });
+            }
+
             setUpdateCloudModalOpen(false);
             updateCloudForm.resetFields();
             setEditingCloudService(null);

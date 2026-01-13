@@ -1,20 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Col, Form, Input, Row, Select, Space, Typography, Button, Divider, message } from 'antd';
+import { Card, Col, Form, Input, Row, Select, Space, Typography, Button, Divider, message, Tabs } from 'antd';
 import { KeyOutlined, LinkOutlined, SafetyCertificateOutlined, SettingOutlined } from '@ant-design/icons';
 import axios from 'axios';
 
 import { API_URL } from '../constants';
 
 const { Title, Paragraph, Text } = Typography;
+const { TabPane } = Tabs;
 
 const defaultSettings = {
   jenkins_url: '',
   jenkins_username: '',
   jenkins_api_token: '',
-  ai_provider: 'openai',
-  ai_base_url: '',
-  ai_api_key: '',
-  ai_model: 'gpt-4.1',
+  ai_provider: 'litellm',
+  ai_base_url: 'https://litellm.ai-server.fortiappsec.com',
+  ai_api_key: 'sk-a122sVi4BhKo8XhtRx3Epg',
+  ai_model: 'qwen3-235b-a22b',
   artifact_storage_path: '/var/lib/mtp/artifacts',
   notification_email: '',
 };
@@ -79,76 +80,87 @@ function Settings({ onSettingsChange, initialSettings }) {
         initialValues={defaultSettings}
         onFinish={handleSubmit}
       >
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={12}>
-            <Card title={<Space><SettingOutlined /> <span>Jenkins Integration</span></Space>}>
-              <Form.Item label="Jenkins URL" name="jenkins_url" tooltip="Base URL of your Jenkins server (e.g. https://jenkins.example.com)">
-                <Input prefix={<LinkOutlined />} placeholder="https://jenkins.example.com" />
-              </Form.Item>
-              <Form.Item label="Username" name="jenkins_username" tooltip="User account with permissions to trigger and monitor builds">
-                <Input placeholder="jenkins-bot" />
-              </Form.Item>
-              <Form.Item label="API Token / Password" name="jenkins_api_token" tooltip="Stored securely on the server and sent with Jenkins API requests">
-                <Input.Password prefix={<KeyOutlined />} placeholder="Enter your API token" />
-              </Form.Item>
+        <Tabs defaultActiveKey="1" size="middle">
+          <TabPane tab={<span><SettingOutlined /> Jenkins</span>} key="1">
+            <Card>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Jenkins URL" name="jenkins_url" tooltip="Base URL of your Jenkins server (e.g. https://jenkins.example.com)">
+                    <Input prefix={<LinkOutlined />} placeholder="https://jenkins.example.com" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Username" name="jenkins_username" tooltip="User account with permissions to trigger and monitor builds">
+                    <Input placeholder="jenkins-bot" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="API Token / Password" name="jenkins_api_token" tooltip="Stored securely on the server and sent with Jenkins API requests">
+                    <Input.Password prefix={<KeyOutlined />} placeholder="Enter your API token" />
+                  </Form.Item>
+                </Col>
+              </Row>
               <Text type="secondary">Settings are securely stored on the server and shared across Mobile Test Pilot services.</Text>
             </Card>
-          </Col>
+          </TabPane>
 
-          <Col xs={24} lg={12}>
-            <Card title={<Space><SafetyCertificateOutlined /> <span>AI Provider</span></Space>}>
-              <Form.Item label="Provider" name="ai_provider" tooltip="Provider used for AI-assisted authoring, remediation, and insights">
-                <Select
-                  options={[
-                    { label: 'OpenAI', value: 'openai' },
-                    { label: 'Anthropic Claude', value: 'claude' },
-                    { label: 'Ollama', value: 'ollama' },
-                  ]}
-                  placeholder="Select a provider"
-                />
-              </Form.Item>
-              <Form.Item label="AI Base URL" name="ai_base_url" tooltip="Endpoint for your AI provider (e.g. https://api.openai.com/v1)">
-                <Input placeholder="https://api.openai.com/v1" />
-              </Form.Item>
-              <Form.Item label="API Key" name="ai_api_key" tooltip="Used for requests to generate test plans, scripts, or summaries">
-                <Input.Password prefix={<KeyOutlined />} placeholder="Enter your API key" />
-              </Form.Item>
-              <Form.Item label="Model" name="ai_model" tooltip="Preferred model for AI-powered workflows">
-                <Select
-                  options={[
-                    { label: 'gpt-4.1', value: 'gpt-4.1' },
-                    { label: 'gpt-4o', value: 'gpt-4o' },
-                    { label: 'gpt-3.5-turbo', value: 'gpt-3.5-turbo' },
-                    { label: 'llama-3-70b', value: 'llama-3-70b' },
-                  ]}
-                  showSearch
-                  filterOption={(input, option) => option?.label?.toLowerCase().includes(input.toLowerCase())}
-                  placeholder="Select a model"
-                />
-              </Form.Item>
-              <Text type="secondary">Configure the provider used by AI-assisted authoring, remediation, and insights.</Text>
+          <TabPane tab={<span><SafetyCertificateOutlined /> AI</span>} key="2">
+            <Card>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Provider" name="ai_provider" tooltip="Private AI provider for internal analysis">
+                    <Select
+                      options={[
+                        { label: 'Anthropic Claude (Private)', value: 'claude' },
+                        { label: 'OpenAI GPT (Private)', value: 'openai' },
+                        { label: 'Ollama (Local)', value: 'ollama' },
+                      ]}
+                      placeholder="Select a private AI provider"
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="AI Base URL" name="ai_base_url" tooltip="Endpoint for your private AI provider (e.g. https://your-private-ai.internal/v1)">
+                    <Input placeholder="https://your-private-ai.internal/v1" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="API Key" name="ai_api_key" tooltip="API key for authenticating with your private AI service">
+                    <Input.Password prefix={<KeyOutlined />} placeholder="Enter your private API key" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Model" name="ai_model" tooltip="Preferred model for AI-powered workflows">
+                    <Input placeholder="Enter model name (e.g., qwen3-235b-a22b)" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Text type="secondary">Configure your private AI service for internal test analysis and insights.</Text>
             </Card>
-          </Col>
-        </Row>
+          </TabPane>
 
-        <Card style={{ marginTop: 16 }} title={<Space><SettingOutlined /> <span>General Preferences</span></Space>}>
-          <Row gutter={[16, 16]}>
-            <Col xs={24} md={12}>
-              <Form.Item label="Artifact Storage Path" name="artifact_storage_path" tooltip="Directory used for build artifacts, logs, and reports">
-                <Input prefix={<LinkOutlined />} placeholder="/var/lib/mtp/artifacts" />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item label="Notification Email" name="notification_email" tooltip="Address that should receive system alerts and summaries">
-                <Input placeholder="qa-team@example.com" />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Divider />
-          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Button type="primary" htmlType="submit" loading={loading}>Save Settings</Button>
-          </Space>
-        </Card>
+          <TabPane tab={<span><SettingOutlined /> General</span>} key="3">
+            <Card>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Artifact Storage Path" name="artifact_storage_path" tooltip="Directory used for build artifacts, logs, and reports">
+                    <Input prefix={<LinkOutlined />} placeholder="/var/lib/mtp/artifacts" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Form.Item label="Notification Email" name="notification_email" tooltip="Address that should receive system alerts and summaries">
+                    <Input placeholder="qa-team@example.com" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Card>
+          </TabPane>
+        </Tabs>
+
+        <Divider />
+        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button type="primary" htmlType="submit" loading={loading}>Save Settings</Button>
+        </Space>
       </Form>
     </div>
   );

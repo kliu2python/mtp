@@ -631,10 +631,10 @@ class FortiTokenOpsManager:
                         results.append(
                             {
                                 'file': conf_path,
-                                'use_sandbox': 'true',  # Default value assumed
+                                'use_sandbox': 'false',  # Default value when not present
                                 'exists': False,
                                 'note': 'use_sandbox not set,'
-                                        ' assuming default True',
+                                        ' defaulting to False',
                                 'session_id': self.session_id,
                             },
                         )

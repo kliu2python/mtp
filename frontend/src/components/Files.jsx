@@ -267,7 +267,7 @@ const Files = () => {
           columns={columns}
           rowKey="name"
           loading={loading}
-          pagination={{ pageSize: 10 }}
+          pagination={{ pageSize: 8 }}
         />
       </Card>
 
