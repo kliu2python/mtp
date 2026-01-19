@@ -2,15 +2,16 @@
 from typing import List, Dict, Any
 import subprocess
 
+
 class DeviceManager:
     async def discover_devices(self) -> List[Dict[str, Any]]:
         """Discover connected devices"""
         devices = []
-        
+
         # Discover Android devices
         try:
-            result = subprocess.run(['adb', 'devices', '-l'], 
-                                  capture_output=True, text=True, timeout=5)
+            result = subprocess.run(['adb', 'devices', '-l'],
+                                    capture_output=True, text=True, timeout=5)
             # Parse ADB output (simplified)
             lines = result.stdout.split('\n')[1:]
             for line in lines:
@@ -26,7 +27,7 @@ class DeviceManager:
                     })
         except:
             pass
-        
+
         # Mock iOS device for demo
         devices.append({
             "name": "iPhone-Demo",
@@ -35,9 +36,9 @@ class DeviceManager:
             "os_version": "16.0",
             "device_id": "mock-ios-device-id"
         })
-        
+
         return devices
-    
+
     async def health_check(self, device) -> Dict[str, Any]:
         """Check device health"""
         return {
@@ -46,5 +47,6 @@ class DeviceManager:
             "storage_free": 5000,
             "status": "healthy"
         }
+
 
 device_manager = DeviceManager()

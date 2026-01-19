@@ -1,7 +1,8 @@
 """
 Jenkins API endpoints
 """
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, HTTPException
+import uuid
 
 from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService
 from app.services.mongodb import MongoDBAPI
@@ -78,9 +79,9 @@ def AuthAndParameterCheck(request: Request):
     server_ip = f"{parts[0]}//{parts[2]}"
     try:
         results = JenkinsService(server_ip,
-                                data.get('server_un'),
-                                data.get('server_pw')
-                                ).fetch_job_structure(data)
+                                 data.get('server_un'),
+                                 data.get('server_pw')
+                                 ).fetch_job_structure(data)
     except Exception:
         return "auth failed", 500
 
@@ -126,6 +127,46 @@ async def ExecuteFTMJenkinsTask(request: Request):
         return {"error": "Error fetching job structure on DB"}, 500
 
 
+@router.post("/tests/run-template")
+async def RunTestFromTemplate(request: Request):
+    """Run a test using a saved template"""
+    try:
+        data = await request.json()
+        template_id = data.get("template_id")
+        vm_id = data.get("vm_id")
+
+        if not template_id:
+            raise HTTPException(
+                status_code=400, detail="Template ID is required")
+
+        # Fetch template from MongoDB
+        template = MongoDBAPI().get_test_template_by_id(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        # Prepare test data using template
+        test_data = {
+            "environment": template.get("environment", "qa"),
+            "platforms": [template.get("platform")],
+            "parameters": {
+                "platform": template.get("platform"),
+                "test_scope": template.get("test_scope"),
+                "test_product": template.get("test_product"),
+                "device_type": template.get("device_type"),
+                "timeout": template.get("timeout", 3600),
+            },
+            "project": template.get("platform") == "ios" and "ftm_ios" or "ftm_android",
+        }
+
+        # Execute the test
+        res = runner.execute_run_task(test_data)
+        logger.info("Template-based test execution started: %s", res)
+        return {"results": res}
+    except Exception as e:
+        logger.exception("Failed to run test from template")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/run/ios/ftm")
 def GetFTMIOSTaskRun():
     try:
@@ -144,7 +185,8 @@ def GetAcceptableTestRecords():
         records = runner.refresh_acceptable_test_records(records)
         sorted_records = sorted(
             records,
-            key=lambda item: item.get("updated_at") or item.get("started_at") or "",
+            key=lambda item: item.get(
+                "updated_at") or item.get("started_at") or "",
             reverse=True,
         )
         logger.info(
@@ -159,7 +201,8 @@ def GetAcceptableTestRecords():
 @router.delete("/run/acceptable-tests")
 def DeleteAcceptableTestRecord(request: Request):
     """Remove an acceptable test record by _id or name."""
-    record_id = request.query_params.get("id") or request.query_params.get("record_id")
+    record_id = request.query_params.get(
+        "id") or request.query_params.get("record_id")
     name = request.query_params.get("name")
 
     if not record_id and not name:

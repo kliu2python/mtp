@@ -34,7 +34,7 @@ class VMProvider(str, enum.Enum):
 class VirtualMachine(Base):
     """Virtual Machine model"""
     __tablename__ = "virtual_machines"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String, unique=True, nullable=False, index=True)
     platform = Column(SQLEnum(VMPlatform), nullable=False)
@@ -42,33 +42,35 @@ class VirtualMachine(Base):
     ip_address = Column(String, nullable=True)
     ssh_username = Column(String, nullable=True)
     ssh_password = Column(String, nullable=True)
-    web_url = Column(String, nullable=True)
-    web_username = Column(String, nullable=True)
-    web_password = Column(String, nullable=True)
+    api_key = Column(String, nullable=True)  # API key for FortiAuthenticator
     provider = Column(SQLEnum(VMProvider), nullable=True)
     status = Column(SQLEnum(VMStatus), default=VMStatus.STOPPED)
     docker_container_id = Column(String, nullable=True)
-    
+
     # Test metrics
-    test_priority = Column(Integer, default=3)  # 1-5
     total_tests = Column(Integer, default=0)
     passed_tests = Column(Integer, default=0)
     failed_tests = Column(Integer, default=0)
     last_test_time = Column(DateTime, nullable=True)
-    
+
     # Resource usage
     cpu_usage = Column(Float, default=0.0)
     memory_usage = Column(Float, default=0.0)
     disk_usage = Column(Float, default=0.0)
-    
+
     # Metadata
     tags = Column(JSON, default=list)
     config = Column(JSON, default=dict)
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
+
     def to_dict(self):
         """Convert to dictionary"""
+        # Derive web_* fields from ssh_* fields and ip_address for backward compatibility
+        web_url = f"http://{self.ip_address}" if self.ip_address else None
+
         return {
             "id": str(self.id),
             "name": self.name,
@@ -77,13 +79,13 @@ class VirtualMachine(Base):
             "ip_address": self.ip_address,
             "ssh_username": self.ssh_username,
             "ssh_password": self.ssh_password,
-            "web_url": self.web_url,
-            "web_username": self.web_username,
-            "web_password": self.web_password,
+            "web_url": web_url,
+            "web_username": self.ssh_username,
+            "web_password": self.ssh_password,
+            "api_key": self.api_key,
             "provider": self.provider.value if self.provider else None,
             "status": self.status.value if self.status else None,
             "docker_container_id": self.docker_container_id,
-            "test_priority": self.test_priority,
             "total_tests": self.total_tests,
             "passed_tests": self.passed_tests,
             "failed_tests": self.failed_tests,
@@ -103,7 +105,8 @@ class TestRecord(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     vm_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    apk_file_id = Column(UUID(as_uuid=True), nullable=True, index=True)  # Link to APK/IPA file
+    apk_file_id = Column(UUID(as_uuid=True), nullable=True,
+                         index=True)  # Link to APK/IPA file
     test_suite = Column(String, nullable=False)
     test_case = Column(String, nullable=False)
     status = Column(String, nullable=False)
@@ -121,7 +124,7 @@ class TestRecord(Base):
     meta = Column("metadata", JSON, default=dict)
 
     executed_at = Column(DateTime, default=datetime.utcnow, index=True)
-    
+
     def to_dict(self):
         return {
             "id": str(self.id),
@@ -140,4 +143,3 @@ class TestRecord(Base):
             "metadata": self.meta,          # return original key
             "executed_at": self.executed_at.isoformat() if self.executed_at else None
         }
-

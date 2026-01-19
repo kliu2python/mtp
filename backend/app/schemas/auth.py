@@ -15,7 +15,8 @@ class UserRegister(BaseModel):
     def username_alphanumeric(cls, v):
         """Validate username is alphanumeric with underscores and hyphens"""
         if not v.replace('_', '').replace('-', '').isalnum():
-            raise ValueError('Username must be alphanumeric (underscores and hyphens allowed)')
+            raise ValueError(
+                'Username must be alphanumeric (underscores and hyphens allowed)')
         return v
 
 

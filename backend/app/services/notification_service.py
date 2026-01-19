@@ -94,11 +94,13 @@ async def send_teams_notification(webhook_url: str, title: str, text: str, color
                 headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status == 200:
-                    logger.info(f"Successfully sent Teams notification: {title}")
+                    logger.info(
+                        f"Successfully sent Teams notification: {title}")
                     return True
                 else:
                     error_text = await response.text()
-                    logger.error(f"Failed to send Teams notification: {response.status} - {error_text}")
+                    logger.error(
+                        f"Failed to send Teams notification: {response.status} - {error_text}")
                     return False
 
     except Exception as e:
@@ -146,11 +148,13 @@ async def send_slack_notification(webhook_url: str, title: str, text: str):
                 headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status == 200:
-                    logger.info(f"Successfully sent Slack notification: {title}")
+                    logger.info(
+                        f"Successfully sent Slack notification: {title}")
                     return True
                 else:
                     error_text = await response.text()
-                    logger.error(f"Failed to send Slack notification: {response.status} - {error_text}")
+                    logger.error(
+                        f"Failed to send Slack notification: {response.status} - {error_text}")
                     return False
 
     except Exception as e:

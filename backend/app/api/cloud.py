@@ -94,7 +94,8 @@ class FICServerCheckRequest(BaseModel):
 def get_session(session_id: str = Header(None, alias="Authorization")):
     """Get session from Authorization header"""
     if not session_id:
-        raise HTTPException(status_code=401, detail="Authorization header required")
+        raise HTTPException(
+            status_code=401, detail="Authorization header required")
 
     # Extract session ID from "Bearer <token>" format
     if session_id.startswith("Bearer "):
@@ -102,7 +103,8 @@ def get_session(session_id: str = Header(None, alias="Authorization")):
 
     session = session_manager.get_session(session_id)
     if session is None:
-        raise HTTPException(status_code=401, detail="Invalid or expired session token")
+        raise HTTPException(
+            status_code=401, detail="Invalid or expired session token")
 
     return session
 
@@ -128,14 +130,18 @@ async def get_cloud_version(client_ip: str):
             response.raise_for_status()
             payload: Dict[str, Any] = response.json()
     except httpx.HTTPStatusError as exc:
-        logger.warning("Cloud status endpoint returned HTTP %s", exc.response.status_code)
-        raise HTTPException(status_code=exc.response.status_code, detail="Failed to fetch cloud status")
+        logger.warning("Cloud status endpoint returned HTTP %s",
+                       exc.response.status_code)
+        raise HTTPException(status_code=exc.response.status_code,
+                            detail="Failed to fetch cloud status")
     except httpx.RequestError as exc:
         logger.error("Error calling cloud status endpoint: %s", exc)
-        raise HTTPException(status_code=503, detail="Unable to reach cloud status endpoint")
+        raise HTTPException(
+            status_code=503, detail="Unable to reach cloud status endpoint")
     except Exception:
         logger.exception("Unexpected error when parsing cloud status response")
-        raise HTTPException(status_code=500, detail="Unexpected error while fetching cloud status")
+        raise HTTPException(
+            status_code=500, detail="Unexpected error while fetching cloud status")
 
     results = payload.get("results", [])
 
@@ -145,14 +151,16 @@ async def get_cloud_version(client_ip: str):
 
         if entry.get("selected_ip") == client_ip:
             version_info = entry.get("json") or {}
-            version = version_info.get("ftc_server") or version_info.get("ftc_portal")
+            version = version_info.get(
+                "ftc_server") or version_info.get("ftc_portal")
 
             if version:
                 return {"version": version, "matched_host": entry.get("selected_host")}
 
             break
 
-    raise HTTPException(status_code=404, detail="No matching cloud service found for the provided client IP")
+    raise HTTPException(
+        status_code=404, detail="No matching cloud service found for the provided client IP")
 
 
 @router.get("/services")
@@ -191,7 +199,8 @@ async def update_cloud_service(
     db: Session = Depends(get_db)
 ):
     """Update a cloud service entry."""
-    service = db.query(CloudService).filter(CloudService.id == service_id).first()
+    service = db.query(CloudService).filter(
+        CloudService.id == service_id).first()
     if not service:
         raise HTTPException(status_code=404, detail="Cloud service not found")
 
@@ -216,7 +225,8 @@ async def update_cloud_service(
 @router.delete("/services/{service_id}")
 async def delete_cloud_service(service_id: str, db: Session = Depends(get_db)):
     """Remove a cloud service from the test platform."""
-    service = db.query(CloudService).filter(CloudService.id == service_id).first()
+    service = db.query(CloudService).filter(
+        CloudService.id == service_id).first()
     if not service:
         raise HTTPException(status_code=404, detail="Cloud service not found")
 
@@ -251,7 +261,8 @@ async def fic_login(payload: FICLoginRequest):
         'target_key_file': payload.target_key_file,
     }
 
-    session_id, error = session_manager.create_session(ssh_config, payload.expires_in_hours)
+    session_id, error = session_manager.create_session(
+        ssh_config, payload.expires_in_hours)
 
     if error:
         raise HTTPException(status_code=500, detail=error)

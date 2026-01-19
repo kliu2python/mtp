@@ -31,6 +31,7 @@ def _build_engine_kwargs(database_url: str) -> dict:
 
     return kwargs
 
+
 # Create engine
 engine = create_engine(
     settings.DATABASE_URL,

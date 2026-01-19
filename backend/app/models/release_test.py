@@ -25,12 +25,14 @@ class ReleaseCandidateTest(Base):
     __tablename__ = "release_candidate_tests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    build_number = Column(String, nullable=False, index=True)  # e.g., "1.2.3-rc1"
+    build_number = Column(String, nullable=False,
+                          index=True)  # e.g., "1.2.3-rc1"
     platform = Column(String, nullable=False)  # android, ios
     version = Column(String, nullable=False)  # e.g., "1.2.3"
 
     # Test information
-    test_suite = Column(String, nullable=False)  # functional, integration, regression
+    # functional, integration, regression
+    test_suite = Column(String, nullable=False)
     test_type = Column(String, nullable=False)  # smoke, acceptance, etc.
 
     # Status tracking
@@ -50,7 +52,8 @@ class ReleaseCandidateTest(Base):
     jenkins_build_url = Column(String, nullable=True)
 
     # Associated files
-    apk_file_id = Column(UUID(as_uuid=True), nullable=True)  # Link to APK/IPA file
+    # Link to APK/IPA file
+    apk_file_id = Column(UUID(as_uuid=True), nullable=True)
 
     # Metadata
     test_metadata = Column("metadata", JSON, default=dict)
@@ -58,7 +61,8 @@ class ReleaseCandidateTest(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
 
     def to_dict(self):
         """Convert to dictionary"""
@@ -82,6 +86,8 @@ class ReleaseCandidateTest(Base):
             "apk_file_id": str(self.apk_file_id) if self.apk_file_id else None,
             "metadata": self.test_metadata,
             "notes": self.notes,
+            "test_cases": self.test_metadata.get('test_cases', []) if self.test_metadata else [],
+            "mantis_issues": self.test_metadata.get('mantis_issues', []) if self.test_metadata else [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }

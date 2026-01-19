@@ -498,7 +498,7 @@ class FortiTokenOpsManager:
                         'file': conf_path,
                         'success': True,
                         'message': f'token_format_version is already '
-                                   f'{new_format}, no changes needed',
+                        f'{new_format}, no changes needed',
                         'current_format': current_format,
                     },
                 )
@@ -557,7 +557,7 @@ class FortiTokenOpsManager:
                         'file': conf_path,
                         'success': True,
                         'message': f'token_format_version updated '
-                                   f'from {current_format} to {new_format}',
+                        f'from {current_format} to {new_format}',
                         'previous_format': current_format,
                         'new_format': new_format,
                         'backup_file': backup_path,
@@ -719,8 +719,8 @@ class FortiTokenOpsManager:
 
                     if updated:
                         new_content = (
-                                content[:section_start] + section_body_new
-                                + content[section_end:]
+                            content[:section_start] + section_body_new
+                            + content[section_end:]
                         )
                         backup_path = (f"{conf_path}.backup"
                                        f"_sandbox_{int(time.time(),)}")
@@ -743,7 +743,7 @@ class FortiTokenOpsManager:
                                 'file': conf_path,
                                 'updated': True,
                                 'message': f"'use_sandbox = {new_value}"
-                                           f"' updated under [push]",
+                                f"' updated under [push]",
                                 'backup_file': backup_path,
                             },
                         )
@@ -755,7 +755,7 @@ class FortiTokenOpsManager:
                                 'file': conf_path,
                                 'updated': False,
                                 'message': f"use_sandbox already set"
-                                           f" to {new_value}",
+                                f" to {new_value}",
                             },
                         )
                 else:
@@ -795,7 +795,7 @@ class FortiTokenOpsManager:
                     return {
                         'success': True,
                         'message': f'Service {service_name}'
-                                   f' restarted successfully',
+                        f' restarted successfully',
                     }
                 else:
                     logger.error(
@@ -823,7 +823,7 @@ class FortiTokenOpsManager:
                     return {
                         'success': True,
                         'message': f'Service {service_name} '
-                                   f'restarted successfully',
+                        f'restarted successfully',
                     }
                 else:
                     logger.error(

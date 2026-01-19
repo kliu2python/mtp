@@ -59,7 +59,8 @@ class MantisService:
         """Read available columns from the SQLite table and cache them."""
         if not self._available_columns:
             cursor = conn.execute(f"PRAGMA table_info({self.TABLE_NAME})")
-            self._available_columns = [row[1] for row in cursor.fetchall() if row and len(row) > 1]
+            self._available_columns = [
+                row[1] for row in cursor.fetchall() if row and len(row) > 1]
 
         if not self._available_columns:
             raise ValueError(f"Table {self.TABLE_NAME} has no columns")
@@ -115,7 +116,8 @@ class MantisService:
         sort_order: Optional[str],
         available_columns: List[str],
     ) -> Tuple[str, str]:
-        default_sort = self.DEFAULT_SORT if self.DEFAULT_SORT in available_columns else available_columns[0]
+        default_sort = self.DEFAULT_SORT if self.DEFAULT_SORT in available_columns else available_columns[
+            0]
         sort_column = sort_by if sort_by in available_columns else default_sort
         order = "DESC" if (sort_order or "").lower() == "desc" else "ASC"
         return sort_column, order
@@ -158,7 +160,8 @@ class MantisService:
 
         with self._connect() as conn:
             available_columns = self._get_available_columns(conn)
-            sort_column, order = self._validate_sort(sort_by, sort_order, available_columns)
+            sort_column, order = self._validate_sort(
+                sort_by, sort_order, available_columns)
             select_columns = ", ".join(available_columns)
 
             base_query = f"FROM {self.TABLE_NAME}{where_clause}"
@@ -170,13 +173,15 @@ class MantisService:
 
             cursor = conn.cursor()
             total = cursor.execute(total_query, params).fetchone()[0]
-            rows = cursor.execute(results_query, [*params, page_size, offset]).fetchall()
+            rows = cursor.execute(
+                results_query, [*params, page_size, offset]).fetchall()
             status_counts = cursor.execute(
                 f"SELECT LOWER(status) as status, COUNT(*) as count {base_query} GROUP BY LOWER(status)",
                 params,
             ).fetchall()
 
-        normalized_counts = {row["status"]: row["count"] for row in status_counts}
+        normalized_counts = {row["status"]: row["count"]
+                             for row in status_counts}
 
         return self._normalize_rows(rows, available_columns), total, normalized_counts
 
@@ -202,7 +207,8 @@ class MantisService:
 
         with self._connect() as conn:
             available_columns = self._get_available_columns(conn)
-            sort_column, order = self._validate_sort(sort_by, sort_order, available_columns)
+            sort_column, order = self._validate_sort(
+                sort_by, sort_order, available_columns)
             select_columns = ", ".join(available_columns)
 
             base_query = f"FROM {self.TABLE_NAME}{where_clause}"
@@ -217,7 +223,8 @@ class MantisService:
                 params,
             ).fetchall()
 
-        normalized_counts = {row["status"]: row["count"] for row in status_counts}
+        normalized_counts = {row["status"]: row["count"]
+                             for row in status_counts}
 
         return self._normalize_rows(rows, available_columns), total, normalized_counts
 

@@ -21,7 +21,8 @@ class CloudService(Base):
     client_ip = Column(String, nullable=False)
     server_version = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow)
 
     def display_name(self) -> Optional[str]:
         """Return the preferred display name for the cloud service."""

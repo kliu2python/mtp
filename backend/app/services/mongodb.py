@@ -25,6 +25,71 @@ class MongoDBAPI:
         self.db = db_name
         self.collection = collection
 
+    def get_test_templates(self):
+        """Fetch all test templates from the MongoDB collection."""
+        url = self._url(f"find?db={self.db}&collection=test_templates")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("documents", [])
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching test templates from MongoDB: {e}")
+            return []
+
+    def get_test_template_by_id(self, template_id: str):
+        """Fetch a test template by ID from the MongoDB collection."""
+        import json
+        import urllib.parse
+
+        filter_json = json.dumps({"id": template_id})
+        encoded_filter = urllib.parse.quote(filter_json)
+        url = self._url(
+            f"find?db={self.db}&collection=test_templates&filter={encoded_filter}")
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()
+            templates = data.get("documents", [])
+            return templates[0] if templates else None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching test template from MongoDB: {e}")
+            return None
+
+    def insert_test_template(self, template_doc: dict):
+        """Insert a test template into the MongoDB collection."""
+        return self.insert_document(template_doc, collection="test_templates")
+
+    def update_test_template(self, template_id: str, update_data: dict):
+        """Update a test template in the MongoDB collection."""
+        update_body = {
+            "filter": {"id": template_id},
+            "update": {"$set": update_data}
+        }
+        url = self._url(f"update?db={self.db}&collection=test_templates")
+        try:
+            response = requests.put(url, json=update_body)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error updating test template in MongoDB: {e}")
+            return None
+
+    def delete_test_template(self, template_id: str):
+        """Delete a test template from the MongoDB collection."""
+        delete_body = {
+            "filter": {"id": template_id}
+        }
+        url = self._url(f"delete?db={self.db}&collection=test_templates")
+        try:
+            response = requests.delete(url, json=delete_body)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("deletedCount", 0) > 0
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error deleting test template from MongoDB: {e}")
+            return False
+
     def _url(self, action: str) -> str:
         return f"{self.api_base}/{action}"
 
@@ -55,7 +120,8 @@ class MongoDBAPI:
             )
         else:
             logger.error(
-                "Failed to insert acceptable test record for job %s", record.get("name")
+                "Failed to insert acceptable test record for job %s", record.get(
+                    "name")
             )
         return result
 
@@ -72,13 +138,15 @@ class MongoDBAPI:
             )
             return records
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching acceptable test records from MongoDB: {e}")
+            logger.error(
+                f"Error fetching acceptable test records from MongoDB: {e}")
             return []
 
     def update_acceptable_test_record(self, record_id, updates: dict):
         """Update an acceptable test record using its primary identifier."""
         if not record_id or not updates:
-            logger.warning("Skipping acceptable test update due to missing data")
+            logger.warning(
+                "Skipping acceptable test update due to missing data")
             return None
 
         normalized_id = record_id
@@ -102,14 +170,16 @@ class MongoDBAPI:
     def delete_acceptable_test_record(self, record_id=None, name=None):
         """Delete an acceptable test record by _id or name."""
         if not record_id and not name:
-            logger.warning("No identifier provided for acceptable test deletion")
+            logger.warning(
+                "No identifier provided for acceptable test deletion")
             return None
 
         normalized_id = record_id
         if isinstance(record_id, dict):
             normalized_id = record_id.get("$oid") or record_id.get("oid")
 
-        filter_body = {"_id": str(ObjectId(normalized_id))} if record_id else {"name": name}
+        filter_body = {"_id": str(ObjectId(normalized_id))} if record_id else {
+            "name": name}
         delete_body = {"filter": filter_body}
         url = self._url(f"delete?db={self.db}&collection=acceptable_tests")
         try:
@@ -210,7 +280,6 @@ class MongoDBAPI:
             raise Exception(
                 f"no record found by {test_env} and no custom env provided.")
         return env_info
-
 
     def update_groups(self, group, append=True):
         groups = self.get_all_groups()

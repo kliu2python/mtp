@@ -32,7 +32,8 @@ async def saml_metadata():
         return Response(content=metadata, media_type="application/xml")
     except Exception as e:
         logger.error(f"Error generating SAML metadata: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate metadata: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate metadata: {str(e)}")
 
 
 @router.get("/login")
@@ -76,7 +77,8 @@ async def saml_login(
 
     except Exception as e:
         logger.error(f"Error initiating SAML login: {e}")
-        raise HTTPException(status_code=500, detail=f"SAML login failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"SAML login failed: {str(e)}")
 
 
 @router.post("/acs")
@@ -104,7 +106,8 @@ async def saml_acs(
         relay_state = form_data.get('RelayState')
 
         if not saml_response:
-            raise HTTPException(status_code=400, detail="No SAML response received")
+            raise HTTPException(
+                status_code=400, detail="No SAML response received")
 
         # Prepare request data
         request_data = {
@@ -123,7 +126,8 @@ async def saml_acs(
         )
 
         if not user_data:
-            raise HTTPException(status_code=401, detail="SAML authentication failed")
+            raise HTTPException(
+                status_code=401, detail="SAML authentication failed")
 
         # Get or create user
         user = auth_service.get_or_create_saml_user(
@@ -133,7 +137,8 @@ async def saml_acs(
         )
 
         if not user:
-            raise HTTPException(status_code=500, detail="Failed to create/update user")
+            raise HTTPException(
+                status_code=500, detail="Failed to create/update user")
 
         # Update session index for logout
         user.saml_session_index = user_data.get('session_index')
@@ -162,7 +167,8 @@ async def saml_acs(
         raise
     except Exception as e:
         logger.error(f"Error processing SAML response: {e}")
-        raise HTTPException(status_code=500, detail=f"SAML processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"SAML processing failed: {str(e)}")
 
 
 @router.get("/logout")
@@ -212,7 +218,8 @@ async def saml_logout(
         raise
     except Exception as e:
         logger.error(f"Error initiating SAML logout: {e}")
-        raise HTTPException(status_code=500, detail=f"SAML logout failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"SAML logout failed: {str(e)}")
 
 
 @router.get("/sls")
@@ -247,7 +254,8 @@ async def saml_sls(request: Request):
 
     except Exception as e:
         logger.error(f"Error processing SAML logout: {e}")
-        raise HTTPException(status_code=500, detail=f"SAML logout processing failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"SAML logout processing failed: {str(e)}")
 
 
 @router.get("/test")
@@ -285,4 +293,5 @@ async def test_saml_config():
 
     except Exception as e:
         logger.error(f"Error checking SAML config: {e}")
-        raise HTTPException(status_code=500, detail=f"Config check failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Config check failed: {str(e)}")

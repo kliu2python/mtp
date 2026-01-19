@@ -93,7 +93,8 @@ async def analyze_logs(request: AnalyzeLogsRequest, db: Session = Depends(get_db
         )
 
         if not result["success"]:
-            raise HTTPException(status_code=500, detail=result.get("error", "Analysis failed"))
+            raise HTTPException(status_code=500, detail=result.get(
+                "error", "Analysis failed"))
 
         return result
 
@@ -101,7 +102,8 @@ async def analyze_logs(request: AnalyzeLogsRequest, db: Session = Depends(get_db
         raise
     except Exception as e:
         logger.error(f"Failed to analyze logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
 @router.post("/suggest-fixes")
@@ -135,7 +137,8 @@ async def suggest_fixes(request: SuggestFixesRequest, db: Session = Depends(get_
 
     except Exception as e:
         logger.error(f"Failed to get fix suggestions: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get suggestions: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get suggestions: {str(e)}")
 
 
 @router.post("/compare-runs")
@@ -161,7 +164,8 @@ async def compare_test_runs(request: CompareTestRunsRequest, db: Session = Depen
         )
 
         if not result["success"]:
-            raise HTTPException(status_code=500, detail=result.get("error", "Comparison failed"))
+            raise HTTPException(status_code=500, detail=result.get(
+                "error", "Comparison failed"))
 
         result.update({
             "provider": resolved_provider,
@@ -174,7 +178,8 @@ async def compare_test_runs(request: CompareTestRunsRequest, db: Session = Depen
         raise
     except Exception as e:
         logger.error(f"Failed to compare test runs: {e}")
-        raise HTTPException(status_code=500, detail=f"Comparison failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Comparison failed: {str(e)}")
 
 
 @router.get("/providers")
@@ -260,4 +265,5 @@ async def analyze_test_logs(
         raise
     except Exception as e:
         logger.error(f"Failed to analyze test logs: {e}")
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Analysis failed: {str(e)}")

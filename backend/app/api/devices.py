@@ -70,7 +70,7 @@ async def get_device(device_id: str, db: Session = Depends(get_db)):
     device = db.query(TestDevice).filter(TestDevice.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     return device.to_dict()
 
 
@@ -83,7 +83,7 @@ async def create_device(device_data: DeviceCreate, db: Session = Depends(get_db)
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Device ID already exists")
-    
+
     device = TestDevice(
         name=device_data.name,
         device_type=DeviceType(device_data.device_type),
@@ -93,11 +93,11 @@ async def create_device(device_data: DeviceCreate, db: Session = Depends(get_db)
         connection_type=device_data.connection_type,
         status=DeviceStatus.AVAILABLE
     )
-    
+
     db.add(device)
     db.commit()
     db.refresh(device)
-    
+
     return device.to_dict()
 
 
@@ -107,13 +107,14 @@ async def delete_device(device_id: str, db: Session = Depends(get_db)):
     device = db.query(TestDevice).filter(TestDevice.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if device.status == DeviceStatus.BUSY:
-        raise HTTPException(status_code=400, detail="Cannot delete device in use")
-    
+        raise HTTPException(
+            status_code=400, detail="Cannot delete device in use")
+
     db.delete(device)
     db.commit()
-    
+
     return {"message": "Device deleted successfully"}
 
 
@@ -126,17 +127,18 @@ async def refresh_devices(
     try:
         # Discover devices in background
         devices = await device_manager.discover_devices()
-        
+
         # Update database
         for device_info in devices:
             existing = db.query(TestDevice).filter(
                 TestDevice.device_id == device_info["device_id"]
             ).first()
-            
+
             if existing:
                 # Update existing device
                 existing.status = DeviceStatus.AVAILABLE
-                existing.os_version = device_info.get("os_version", existing.os_version)
+                existing.os_version = device_info.get(
+                    "os_version", existing.os_version)
                 existing.last_heartbeat = datetime.utcnow()
             else:
                 # Create new device
@@ -151,15 +153,16 @@ async def refresh_devices(
                     status=DeviceStatus.AVAILABLE
                 )
                 db.add(new_device)
-        
+
         db.commit()
-        
+
         return {
             "message": "Devices refreshed successfully",
             "discovered": len(devices)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to refresh devices: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to refresh devices: {str(e)}")
 
 
 @router.post("/{device_id}/reserve")
@@ -172,16 +175,16 @@ async def reserve_device(
     device = db.query(TestDevice).filter(TestDevice.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if device.status != DeviceStatus.AVAILABLE:
         raise HTTPException(status_code=400, detail="Device not available")
-    
+
     device.status = DeviceStatus.BUSY
     device.current_test_id = test_id
     device.last_heartbeat = datetime.utcnow()
     db.commit()
     db.refresh(device)
-    
+
     return {
         "message": "Device reserved successfully",
         "device": device.to_dict()
@@ -194,13 +197,13 @@ async def release_device(device_id: str, db: Session = Depends(get_db)):
     device = db.query(TestDevice).filter(TestDevice.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     device.status = DeviceStatus.AVAILABLE
     device.current_test_id = None
     device.last_heartbeat = datetime.utcnow()
     db.commit()
     db.refresh(device)
-    
+
     return {
         "message": "Device released successfully",
         "device": device.to_dict()
@@ -251,7 +254,8 @@ async def get_stream_devices():
     for device in devices:
         info = device.get("info", {})
 
-        is_available = device.get("available", False) and not device.get("in_use", False)
+        is_available = device.get(
+            "available", False) and not device.get("in_use", False)
         status = "available" if is_available else "unavailable"
 
         normalized.append({
@@ -302,8 +306,10 @@ async def get_device_stats(db: Session = Depends(get_db)):
         TestDevice.status == DeviceStatus.OFFLINE
     ).count()
 
-    ios_count = db.query(TestDevice).filter(TestDevice.platform == "iOS").count()
-    android_count = db.query(TestDevice).filter(TestDevice.platform == "Android").count()
+    ios_count = db.query(TestDevice).filter(
+        TestDevice.platform == "iOS").count()
+    android_count = db.query(TestDevice).filter(
+        TestDevice.platform == "Android").count()
 
     return {
         "total": total,

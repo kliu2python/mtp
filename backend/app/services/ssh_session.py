@@ -76,6 +76,7 @@ class InteractiveAuthHandler(paramiko.auth_handler.AuthHandler):
     Custom auth handler that tries keyboard-interactive once, then password once.
     No retries, no multi-key attempts.
     """
+
     def __init__(self, transport, username, password):
         self.transport = transport
         self.username = username
@@ -119,7 +120,8 @@ class InteractiveAuthHandler(paramiko.auth_handler.AuthHandler):
 
     def _interactive_handler(self, title, instructions, prompt_list):
         """Handle keyboard-interactive prompts by providing password"""
-        print(f">>> Keyboard-interactive: title={title}, prompts={len(prompt_list)}", flush=True)
+        print(
+            f">>> Keyboard-interactive: title={title}, prompts={len(prompt_list)}", flush=True)
         if prompt_list:
             # Return password for all prompts
             return [self.password] * len(prompt_list)
@@ -160,7 +162,8 @@ class SSHSession:
 
     def _connect(self):
         """Establish SSH connection with Paramiko"""
-        print(f">>> Connecting to {self.hostname}:{self.port} as {self.username}", flush=True)
+        print(
+            f">>> Connecting to {self.hostname}:{self.port} as {self.username}", flush=True)
 
         # Create SSH client
         self._client = paramiko.SSHClient()
@@ -201,7 +204,8 @@ class SSHSession:
             print(">>> Interactive shell started", flush=True)
 
             # Start output reader thread
-            self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._reader_thread = threading.Thread(
+                target=self._reader_loop, daemon=True)
             self._reader_thread.start()
 
         except paramiko.AuthenticationException as e:
@@ -408,7 +412,8 @@ def parse_websocket_payload(msg: str) -> str:
             if isinstance(item, str):
                 out.append(item)
             elif isinstance(item, dict):
-                sk = item.get("key") or item.get("special") or item.get("special_key")
+                sk = item.get("key") or item.get(
+                    "special") or item.get("special_key")
                 if sk:
                     t = translate_special_key(sk)
                     if t:
