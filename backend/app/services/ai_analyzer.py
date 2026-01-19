@@ -67,13 +67,15 @@ class AILogAnalyzer:
         if self.provider == AIProvider.CLAUDE:
             from anthropic import Anthropic
             if self.base_url:
-                self.client = Anthropic(api_key=self.api_key, base_url=self.base_url)
+                self.client = Anthropic(
+                    api_key=self.api_key, base_url=self.base_url)
             else:
                 self.client = Anthropic(api_key=self.api_key)
         elif self.provider == AIProvider.OPENAI:
             from openai import OpenAI
             if self.base_url:
-                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+                self.client = OpenAI(api_key=self.api_key,
+                                     base_url=self.base_url)
             else:
                 self.client = OpenAI(api_key=self.api_key)
         elif self.provider == AIProvider.OLLAMA:
@@ -100,7 +102,8 @@ class AILogAnalyzer:
             Analysis results dictionary
         """
         # Build prompt based on log type
-        prompt = self._build_analysis_prompt(logs, log_type, test_name, focus_areas)
+        prompt = self._build_analysis_prompt(
+            logs, log_type, test_name, focus_areas)
 
         # Get AI response
         try:
@@ -193,7 +196,8 @@ Provide your analysis in a structured format."""
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "You are an expert QA engineer analyzing test logs."},
+                {"role": "system",
+                    "content": "You are an expert QA engineer analyzing test logs."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=2000
@@ -229,24 +233,29 @@ Provide your analysis in a structured format."""
         }
 
         # Simple regex-based parsing
-        summary_match = re.search(r'\*\*Summary\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
+        summary_match = re.search(
+            r'\*\*Summary\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
         if summary_match:
             sections["summary"] = summary_match.group(1).strip()
 
-        root_cause_match = re.search(r'\*\*Root Cause\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
+        root_cause_match = re.search(
+            r'\*\*Root Cause\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
         if root_cause_match:
             sections["root_cause"] = root_cause_match.group(1).strip()
 
-        severity_match = re.search(r'\*\*Severity\*\*[:\s]*(Critical|High|Medium|Low)', response, re.IGNORECASE)
+        severity_match = re.search(
+            r'\*\*Severity\*\*[:\s]*(Critical|High|Medium|Low)', response, re.IGNORECASE)
         if severity_match:
             sections["severity"] = severity_match.group(1).capitalize()
 
-        impact_match = re.search(r'\*\*Test Impact\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
+        impact_match = re.search(
+            r'\*\*Test Impact\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
         if impact_match:
             sections["test_impact"] = impact_match.group(1).strip()
 
         # Extract errors and recommendations (list items)
-        error_section = re.search(r'\*\*Error Analysis\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
+        error_section = re.search(
+            r'\*\*Error Analysis\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
         if error_section:
             errors_text = error_section.group(1)
             sections["errors"] = [
@@ -255,7 +264,8 @@ Provide your analysis in a structured format."""
                 if line.strip() and (line.strip().startswith('-') or line.strip().startswith('•') or line.strip().startswith('*'))
             ]
 
-        rec_section = re.search(r'\*\*Recommendations\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
+        rec_section = re.search(
+            r'\*\*Recommendations\*\*[:\s]*(.*?)(?=\*\*|$)', response, re.DOTALL | re.IGNORECASE)
         if rec_section:
             rec_text = rec_section.group(1)
             sections["recommendations"] = [

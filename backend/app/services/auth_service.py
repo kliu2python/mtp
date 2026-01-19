@@ -132,14 +132,16 @@ class AuthService:
 
             # Hash password for local users
             if auth_provider == AuthProvider.LOCAL and password:
-                user_data["hashed_password"] = AuthService.hash_password(password)
+                user_data["hashed_password"] = AuthService.hash_password(
+                    password)
 
             user = User(**user_data)
             db.add(user)
             db.commit()
             db.refresh(user)
 
-            logger.info(f"User created: {username} ({email}) with provider {auth_provider}")
+            logger.info(
+                f"User created: {username} ({email}) with provider {auth_provider}")
             return user
 
         except Exception as e:
@@ -194,7 +196,8 @@ class AuthService:
                 # Lock account after 5 failed attempts for 30 minutes
                 if user.failed_login_attempts >= 5:
                     user.locked_until = datetime.utcnow() + timedelta(minutes=30)
-                    logger.warning(f"Account locked due to failed attempts: {username}")
+                    logger.warning(
+                        f"Account locked due to failed attempts: {username}")
 
                 db.commit()
                 logger.warning(f"Invalid password for user: {username}")
@@ -275,11 +278,14 @@ class AuthService:
 
             # Extract user info from SAML attributes
             email = saml_attributes.get('email', [None])[0]
-            username = saml_attributes.get('username', [None])[0] or email.split('@')[0] if email else None
-            full_name = saml_attributes.get('displayName', [None])[0] or saml_attributes.get('cn', [None])[0]
+            username = saml_attributes.get('username', [None])[
+                0] or email.split('@')[0] if email else None
+            full_name = saml_attributes.get('displayName', [None])[
+                0] or saml_attributes.get('cn', [None])[0]
 
             if not email or not username:
-                logger.error("Missing required SAML attributes: email or username")
+                logger.error(
+                    "Missing required SAML attributes: email or username")
                 return None
 
             # Create new SAML user
@@ -316,7 +322,8 @@ class AuthService:
         """Update user password"""
         try:
             if user.auth_provider != AuthProvider.LOCAL:
-                logger.warning(f"Cannot update password for non-local user: {user.username}")
+                logger.warning(
+                    f"Cannot update password for non-local user: {user.username}")
                 return False
 
             user.hashed_password = AuthService.hash_password(new_password)

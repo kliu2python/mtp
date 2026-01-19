@@ -175,7 +175,8 @@ class STFClient:
             Normalized device data for MTP
         """
         # Determine platform
-        platform = 'Android' if stf_device.get('platform') == 'Android' else 'iOS'
+        platform = 'Android' if stf_device.get(
+            'platform') == 'Android' else 'iOS'
 
         # Determine device type
         device_type = 'physical_android' if platform == 'Android' else 'physical_ios'

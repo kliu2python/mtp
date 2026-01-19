@@ -5,8 +5,6 @@ import axios from 'axios';
 import { API_URL } from '../constants';
 import { useNavigate } from 'react-router-dom';
 
-const { TextArea } = Input;
-
 const ReleaseTestsByVersion = () => {
   const [testCycles, setTestCycles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,10 +54,34 @@ const ReleaseTestsByVersion = () => {
           cycleData.passedBuilds++;
         }
 
-        cycleData.totalTests += (test.passed_count || 0) + (test.failed_count || 0) + (test.skipped_count || 0);
-        cycleData.passedTests += test.passed_count || 0;
-        cycleData.failedTests += test.failed_count || 0;
-        cycleData.skippedTests += test.skipped_count || 0;
+        // Calculate counts based on actual test cases if available
+        if (test.test_cases && Array.isArray(test.test_cases)) {
+          const passedCount = test.test_cases.filter(tc => {
+            const status = tc.status ? tc.status.toString().toUpperCase() : '';
+            return status === 'PASSED';
+          }).length;
+
+          const failedCount = test.test_cases.filter(tc => {
+            const status = tc.status ? tc.status.toString().toUpperCase() : '';
+            return status === 'FAILED' || status === 'BROKEN';
+          }).length;
+
+          const skippedCount = test.test_cases.filter(tc => {
+            const status = tc.status ? tc.status.toString().toUpperCase() : '';
+            return status === 'SKIPPED';
+          }).length;
+
+          cycleData.totalTests += passedCount + failedCount + skippedCount;
+          cycleData.passedTests += passedCount;
+          cycleData.failedTests += failedCount;
+          cycleData.skippedTests += skippedCount;
+        } else {
+          // Fallback to original counter fields if test cases aren't available
+          cycleData.totalTests += (test.passed_count || 0) + (test.failed_count || 0) + (test.skipped_count || 0);
+          cycleData.passedTests += test.passed_count || 0;
+          cycleData.failedTests += test.failed_count || 0;
+          cycleData.skippedTests += test.skipped_count || 0;
+        }
       });
 
       // Convert to array format and calculate pass rates
@@ -100,6 +122,12 @@ const ReleaseTestsByVersion = () => {
 
   const handleCreateTest = () => {
     form.resetFields();
+    // Set default values for required fields that aren't shown in the simplified form
+    form.setFieldsValue({
+      build_number: '',
+      test_suite: 'regression',
+      test_type: 'critical'
+    });
     setModalOpen(true);
   };
 
@@ -223,7 +251,7 @@ const ReleaseTestsByVersion = () => {
               icon={<PlusOutlined />}
               onClick={handleCreateTest}
             >
-              Add Test Result
+              Add Release Test
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -262,15 +290,6 @@ const ReleaseTestsByVersion = () => {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="Build Number"
-                name="build_number"
-                rules={[{ required: true, message: 'Please enter build number' }]}
-              >
-                <Input placeholder="e.g., 1.2.3-rc1" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
                 label="Platform"
                 name="platform"
                 rules={[{ required: true, message: 'Please select platform' }]}
@@ -281,9 +300,6 @@ const ReleaseTestsByVersion = () => {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 label="Version"
@@ -293,144 +309,29 @@ const ReleaseTestsByVersion = () => {
                 <Input placeholder="e.g., 1.2.3" />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Test Suite"
-                name="test_suite"
-                rules={[{ required: true, message: 'Please enter test suite' }]}
-              >
-                <Select placeholder="Select test suite">
-                  <Select.Option value="functional">Functional</Select.Option>
-                  <Select.Option value="integration">Integration</Select.Option>
-                  <Select.Option value="regression">Regression</Select.Option>
-                  <Select.Option value="acceptance">Acceptance</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
           </Row>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Test Type"
-                name="test_type"
-                rules={[{ required: true, message: 'Please enter test type' }]}
-              >
-                <Select placeholder="Select test type">
-                  <Select.Option value="smoke">Smoke</Select.Option>
-                  <Select.Option value="full">Full</Select.Option>
-                  <Select.Option value="critical">Critical Path</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Status"
-                name="status"
-              >
-                <Select placeholder="Select status">
-                  <Select.Option value="pending">Pending</Select.Option>
-                  <Select.Option value="running">Running</Select.Option>
-                  <Select.Option value="passed">Passed</Select.Option>
-                  <Select.Option value="failed">Failed</Select.Option>
-                  <Select.Option value="skipped">Skipped</Select.Option>
-                  <Select.Option value="error">Error</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Started At"
-                name="started_at"
-              >
-                <Input type="datetime-local" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Completed At"
-                name="completed_at"
-              >
-                <Input type="datetime-local" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="Duration (s)"
-                name="duration"
-              >
-                <Input type="number" placeholder="Duration in seconds" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Passed Count"
-                name="passed_count"
-              >
-                <Input type="number" placeholder="Number of passed tests" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="Failed Count"
-                name="failed_count"
-              >
-                <Input type="number" placeholder="Number of failed tests" />
-              </Form.Item>
-            </Col>
-          </Row>
-
+          {/* Hidden fields with default values */}
           <Form.Item
-            label="Jenkins Job Name"
-            name="jenkins_job_name"
+            name="build_number"
+            initialValue=""
+            hidden
           >
-            <Input placeholder="Jenkins job name" />
+            <Input />
           </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Jenkins Build Number"
-                name="jenkins_build_number"
-              >
-                <Input type="number" placeholder="Build number" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="APK File ID"
-                name="apk_file_id"
-              >
-                <Input placeholder="UUID of associated APK file" />
-              </Form.Item>
-            </Col>
-          </Row>
-
           <Form.Item
-            label="Jenkins Build URL"
-            name="jenkins_build_url"
+            name="test_suite"
+            initialValue="regression"
+            hidden
           >
-            <Input placeholder="Full URL to Jenkins build" />
+            <Input />
           </Form.Item>
-
           <Form.Item
-            label="Metadata"
-            name="test_metadata"
+            name="test_type"
+            initialValue="critical"
+            hidden
           >
-            <TextArea placeholder='{"key": "value"}' rows={4} />
-          </Form.Item>
-
-          <Form.Item
-            label="Notes"
-            name="notes"
-          >
-            <TextArea placeholder="Additional notes about this test" rows={4} />
+            <Input />
           </Form.Item>
         </Form>
       </Modal>

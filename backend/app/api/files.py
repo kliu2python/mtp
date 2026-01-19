@@ -27,12 +27,14 @@ DEFAULT_UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 def _initialize_upload_dir() -> Path:
     """Determine and prepare the upload directory."""
 
-    configured_path = Path(os.getenv("UPLOAD_FOLDER", settings.UPLOAD_DIR)).expanduser()
+    configured_path = Path(
+        os.getenv("UPLOAD_FOLDER", settings.UPLOAD_DIR)).expanduser()
 
     try:
         configured_path.mkdir(parents=True, exist_ok=True)
         if not os.access(configured_path, os.W_OK):
-            raise PermissionError(f"Upload directory '{configured_path}' is not writable")
+            raise PermissionError(
+                f"Upload directory '{configured_path}' is not writable")
         return configured_path
     except Exception as exc:  # pragma: no cover - fallback path is best-effort
         logger.warning(
@@ -88,7 +90,8 @@ def _build_file_listing() -> List[dict]:
     except FileNotFoundError:
         UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     except OSError as exc:  # pragma: no cover - runtime failure path
-        raise HTTPException(status_code=500, detail="Failed to read files") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to read files") from exc
 
     return details
 
@@ -168,8 +171,10 @@ async def generate_qr_code(filename: str, request: Request) -> dict:
     except ValueError as exc:
         message = str(exc)
         if "too long" in message.lower():
-            raise HTTPException(status_code=422, detail="Download link is too long to encode as a QR code") from exc
-        raise HTTPException(status_code=500, detail="Unable to generate QR code") from exc
+            raise HTTPException(
+                status_code=422, detail="Download link is too long to encode as a QR code") from exc
+        raise HTTPException(
+            status_code=500, detail="Unable to generate QR code") from exc
 
     return {
         "filename": file_path.name,
@@ -189,9 +194,11 @@ async def read_file(filename: str) -> dict:
     try:
         content = file_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=415, detail="File is not a UTF-8 encoded text file") from exc
+        raise HTTPException(
+            status_code=415, detail="File is not a UTF-8 encoded text file") from exc
     except OSError as exc:  # pragma: no cover - runtime failure path
-        raise HTTPException(status_code=500, detail="Failed to read file") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to read file") from exc
 
     return {"content": content}
 
@@ -221,7 +228,8 @@ async def update_file(filename: str, payload: UpdateFileRequest) -> dict:
             file_path.rename(new_path)
             updated_path = new_path
     except OSError as exc:  # pragma: no cover - runtime failure path
-        raise HTTPException(status_code=500, detail="Failed to update file") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to update file") from exc
 
     return {"message": "File updated successfully", "filename": updated_path.name}
 
@@ -237,6 +245,7 @@ async def delete_file(filename: str) -> dict:
     try:
         file_path.unlink()
     except OSError as exc:  # pragma: no cover - runtime failure path
-        raise HTTPException(status_code=500, detail="Failed to delete file") from exc
+        raise HTTPException(
+            status_code=500, detail="Failed to delete file") from exc
 
     return {"message": "File deleted successfully"}

@@ -8,8 +8,12 @@ from requests.auth import HTTPBasicAuth
 import threading
 from time import sleep
 import urllib.parse
+import uuid
 
 import jenkins
+import json
+import requests
+from urllib.parse import urljoin
 
 from app.services.mongodb import MongoDBAPI
 from app.core.config import settings
@@ -39,7 +43,7 @@ class JenkinsService:
         server_ip=JENKINS_IP,
         server_un=JENKINS_UN,
         server_pw=JENKINS_PW
-        ):
+    ):
         self.server = jenkins.Jenkins(
             server_ip, username=server_un, password=server_pw
         )
@@ -51,6 +55,418 @@ class JenkinsService:
         except Exception as e:
             logger.error("Error connecting to Jenkins: %s", e)
             exit(1)
+
+    def _parse_test_case_metadata(self, test_name: str) -> dict:
+        """
+        Parse additional metadata from test case name.
+
+        Examples:
+        - test_fortiautenticator_fortitoken_mfa_push[v7.6.4,build3596,250820 (GA.F) Timezone DB Version: 1.0009 Timezone DB IANA Version: 2025b, 16-ftm-android]
+        - test_fortigate_admin_fortitoken_mfa_push[v7.6.4,build3596,250820 (GA.F) Timezone DB Version: 1.0009 Timezone DB IANA Version: 2025b, 16-ftm-android]
+        """
+        metadata = {
+            'test_component': '',  # FTK, FIC, etc.
+            'test_platform': '',   # FAC, FGT, etc.
+            'os_version': '',      # iOS/Android version
+            'device_info': '',     # Device identifier
+        }
+
+        if not test_name:
+            return metadata
+
+        # Extract test component and platform from the test name prefix
+        test_name_lower = test_name.lower()
+
+        # Determine platform (FAC = FortiAuthenticator, FGT = FortiGate)
+        # Priority order: explicit prefixes
+        if 'fortigate' in test_name_lower or 'admin' in test_name_lower:
+            metadata['test_platform'] = 'FGT'  # FortiGate
+        elif 'fortiautenticator' in test_name_lower:
+            metadata['test_platform'] = 'FAC'  # FortiAuthenticator
+        elif 'fortitoken_cloud' in test_name_lower:
+            # Special case: cloud tests with "fortigate" should be FGT
+            if 'fortigate' in test_name_lower:
+                metadata['test_platform'] = 'FGT'  # FortiGate
+            else:
+                # FortiAuthenticator for pure cloud tests
+                metadata['test_platform'] = 'FAC'
+        else:
+            metadata['test_platform'] = 'Unknown'
+
+        # Determine component (FTK = FortiToken, FIC = FortiToken Cloud)
+        # Check for fortitoken_cloud first since it contains 'fortitoken'
+        if 'fortitoken_cloud' in test_name_lower:
+            metadata['test_component'] = 'FIC'  # FortiToken Cloud
+        elif 'fortitoken' in test_name_lower:
+            metadata['test_component'] = 'FTK'  # FortiToken
+        else:
+            metadata['test_component'] = 'Unknown'
+
+        # Extract information from bracketed section [version_info, device_info]
+        import re
+        bracket_pattern = r'\[([^\]]+)\]'
+        match = re.search(bracket_pattern, test_name)
+        if match:
+            bracket_content = match.group(1)
+            # Split by comma to get different parts
+            parts = [part.strip() for part in bracket_content.split(',')]
+
+            # Extract OS version and device info from the last part
+            if parts:
+                # Usually contains device info like "16-ftm-android"
+                last_part = parts[-1]
+                if '-' in last_part:
+                    device_parts = last_part.split('-')
+                    if len(device_parts) >= 3:
+                        metadata['device_info'] = device_parts[0]  # "16"
+                        # "android" or similar
+                        metadata['os_version'] = device_parts[2]
+
+        return metadata
+
+    def fetch_allure_report_data(self, allure_url: str):
+        """
+        Fetch and parse Allure report data from the given URL.
+
+        Args:
+            allure_url (str): URL to the Allure report
+
+        Returns:
+            dict: Parsed test results data or None if failed
+        """
+        try:
+            # Construct the URL to fetch widgets data which contains summary
+            widgets_url = urljoin(allure_url.rstrip(
+                '/') + '/', 'data/widgets.json')
+
+            logger.info(f"Fetching Allure report data from: {widgets_url}")
+            response = requests.get(widgets_url, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # Extract summary statistics
+            summary = {}
+            for widget in data.get('widgets', []):
+                if widget.get('id') == 'summary':
+                    summary = widget.get('data', {})
+                    break
+
+            # Parse the results
+            total = summary.get('total', 0)
+            passed = summary.get('passed', 0)
+            failed = summary.get('failed', 0)
+            broken = summary.get('broken', 0)
+            skipped = summary.get('skipped', 0)
+            unknown = summary.get('unknown', 0)
+
+            results = {
+                'total': total,
+                'passed_count': passed,
+                'failed_count': failed,
+                'broken_count': broken,
+                'skipped_count': skipped,
+                'unknown_count': unknown,
+                'duration': summary.get('time', {}).get('duration', 0) // 1000,
+                'start_time': summary.get('time', {}).get('start', None),
+                'stop_time': summary.get('time', {}).get('stop', None),
+                'test_cases': []  # Initialize test cases array
+            }
+
+            # Try to fetch test case details from suites.csv
+            try:
+                suites_csv_url = urljoin(
+                    allure_url.rstrip('/') + '/', 'data/suites.csv')
+                logger.info(
+                    f"Fetching Allure suites data from: {suites_csv_url}")
+                csv_response = requests.get(suites_csv_url, timeout=30)
+                if csv_response.status_code == 200:
+                    # Parse CSV data
+                    import csv
+                    from io import StringIO
+
+                    csv_data = StringIO(csv_response.text)
+                    reader = csv.DictReader(csv_data)
+
+                    test_cases = []
+                    for row in reader:
+                        test_case = {
+                            'name': row.get('Name', ''),
+                            'status': row.get('Status', '').lower(),
+                            'duration_ms': int(row.get('Duration in ms', 0)),
+                            'parent_suite': row.get('Parent Suite', ''),
+                            'suite': row.get('Suite', ''),
+                            'sub_suite': row.get('Sub Suite', ''),
+                            'test_class': row.get('Test Class', ''),
+                            'test_method': row.get('Test Method', ''),
+                            'description': row.get('Description', ''),
+                            'start_time': row.get('Start Time', ''),
+                            'stop_time': row.get('Stop Time', '')
+                        }
+                        test_cases.append(test_case)
+
+                    results['test_cases'] = test_cases
+                    logger.info(
+                        f"Successfully extracted {len(test_cases)} test cases from suites.csv")
+            except Exception as csv_error:
+                logger.warning(
+                    f"Could not fetch or parse suites.csv: {csv_error}")
+                # This is not critical, so we continue
+
+            logger.info(f"Successfully fetched Allure report data: {results}")
+            return results
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching Allure report from {allure_url}: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Error parsing Allure report JSON from {allure_url}: {e}")
+            return None
+        except Exception as e:
+            logger.error(
+                f"Unexpected error fetching Allure report from {allure_url}: {e}")
+            return None
+
+    def extract_results_from_zip(self, zip_file_path: str):
+        """
+        Extract test results from a zip file containing test reports.
+
+        Args:
+            zip_file_path (str): Path to the zip file containing test results
+
+        Returns:
+            dict: Parsed test results data or None if failed
+        """
+        import zipfile
+        import os
+        import xml.etree.ElementTree as ET
+        import csv
+
+        try:
+            logger.info(
+                f"Extracting test results from zip file: {zip_file_path}")
+
+            # Check if file exists
+            if not os.path.exists(zip_file_path):
+                logger.error(f"Zip file not found: {zip_file_path}")
+                return None
+
+            results = {
+                'total': 0,
+                'passed_count': 0,
+                'failed_count': 0,
+                'skipped_count': 0,
+                'duration': 0,
+                'test_cases': []  # Store individual test cases
+            }
+
+            # Extract and parse reports from ZIP file
+            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+                # Look for common test result files
+                for file_info in zip_ref.filelist:
+                    filename = file_info.filename
+                    # Handle JUnit XML format
+                    if filename.endswith('.xml') and 'test' in filename.lower():
+                        with zip_ref.open(filename) as xml_file:
+                            try:
+                                tree = ET.parse(xml_file)
+                                root = tree.getroot()
+
+                                # Parse testsuite elements
+                                for testsuite in root.findall('testsuite'):
+                                    results['total'] += int(
+                                        testsuite.get('tests', 0))
+                                    results['passed_count'] += int(
+                                        testsuite.get('passes', 0))
+                                    results['failed_count'] += int(
+                                        testsuite.get('failures', 0))
+                                    results['skipped_count'] += int(
+                                        testsuite.get('skipped', 0))
+                                    results['duration'] += int(
+                                        float(testsuite.get('time', 0)))
+
+                                    # Extract individual test cases
+                                    for testcase in testsuite.findall('testcase'):
+                                        case_data = {
+                                            'name': testcase.get('name', ''),
+                                            'classname': testcase.get('classname', ''),
+                                            'time': float(testcase.get('time', 0)),
+                                            'status': 'PASSED'
+                                        }
+
+                                        # Check for failure or error elements
+                                        if testcase.find('failure') is not None or testcase.find('error') is not None:
+                                            case_data['status'] = 'FAILED'
+                                            failure = testcase.find(
+                                                'failure') or testcase.find('error')
+                                            case_data['failure_message'] = failure.get(
+                                                'message', '') if failure is not None else ''
+                                        elif testcase.find('skipped') is not None:
+                                            case_data['status'] = 'SKIPPED'
+
+                                        # Add metadata from test case name
+                                        metadata = self._parse_test_case_metadata(
+                                            case_data['name'])
+                                        case_data.update(metadata)
+
+                                        results['test_cases'].append(case_data)
+
+                                # Handle individual testcase elements if no testsuites
+                                if results['total'] == 0:
+                                    testcases = root.findall('.//testcase')
+                                    results['total'] = len(testcases)
+
+                                    for testcase in testcases:
+                                        case_data = {
+                                            'name': testcase.get('name', ''),
+                                            'classname': testcase.get('classname', ''),
+                                            'time': float(testcase.get('time', 0)),
+                                            'status': 'PASSED'
+                                        }
+
+                                        # Check for failure or error elements
+                                        if testcase.find('failure') is not None or testcase.find('error') is not None:
+                                            case_data['status'] = 'FAILED'
+                                            failure = testcase.find(
+                                                'failure') or testcase.find('error')
+                                            case_data['failure_message'] = failure.get(
+                                                'message', '') if failure is not None else ''
+                                            results['failed_count'] += 1
+                                        elif testcase.find('skipped') is not None:
+                                            case_data['status'] = 'SKIPPED'
+                                            results['skipped_count'] += 1
+                                        else:
+                                            results['passed_count'] += 1
+
+                                        # Add metadata from test case name
+                                        metadata = self._parse_test_case_metadata(
+                                            case_data['name'])
+                                        case_data.update(metadata)
+
+                                        results['test_cases'].append(case_data)
+
+                            except ET.ParseError as e:
+                                logger.warning(
+                                    f"Could not parse XML file {filename}: {e}")
+                                continue
+
+                    # Handle Allure JSON format if present
+                    elif filename.endswith('.json') and 'allure' in filename.lower():
+                        with zip_ref.open(filename) as json_file:
+                            try:
+                                import json
+                                data = json.load(json_file)
+
+                                # Extract results from Allure JSON format
+                                # This is a simplified implementation - would need to be expanded based on actual format
+                                if isinstance(data, dict) and 'statistic' in data:
+                                    stats = data['statistic']
+                                    results['total'] += stats.get('total', 0)
+                                    results['passed_count'] += stats.get(
+                                        'passed', 0)
+                                    results['failed_count'] += stats.get(
+                                        'failed', 0)
+                                    results['skipped_count'] += stats.get(
+                                        'skipped', 0)
+
+                                    # If this is a test case result, add it to test_cases
+                                    if 'name' in data:
+                                        case_data = {
+                                            'name': data.get('name', ''),
+                                            'status': 'UNKNOWN',
+                                            'time': data.get('time', 0)
+                                        }
+
+                                        # Determine status from statistic if available
+                                        if stats.get('failed', 0) > 0:
+                                            case_data['status'] = 'FAILED'
+                                        elif stats.get('passed', 0) > 0:
+                                            case_data['status'] = 'PASSED'
+                                        elif stats.get('skipped', 0) > 0:
+                                            case_data['status'] = 'SKIPPED'
+
+                                        # Add metadata from test case name
+                                        metadata = self._parse_test_case_metadata(
+                                            case_data['name'])
+                                        case_data.update(metadata)
+
+                                        results['test_cases'].append(case_data)
+
+                            except json.JSONDecodeError as e:
+                                logger.warning(
+                                    f"Could not parse JSON file {filename}: {e}")
+                                continue
+
+                    # Handle Allure suites.csv file if present
+                    elif filename.endswith('suites.csv') and 'allure-report' in filename.replace('\\', '/').lower():
+                        try:
+                            with zip_ref.open(filename) as csv_file:
+                                # Decode bytes to string
+                                csv_content = csv_file.read().decode('utf-8')
+                                from io import StringIO
+
+                                csv_data = StringIO(csv_content)
+                                reader = csv.DictReader(csv_data)
+
+                                # Clear previously extracted test cases and use CSV data instead
+                                results['test_cases'] = []
+
+                                for row in reader:
+                                    # Parse additional metadata from test case name
+                                    test_name = row.get('Name', '')
+                                    metadata = self._parse_test_case_metadata(
+                                        test_name)
+
+                                    test_case = {
+                                        'name': test_name,
+                                        'status': row.get('Status', '').lower(),
+                                        'duration_ms': int(row.get('Duration in ms', 0)),
+                                        'parent_suite': row.get('Parent Suite', ''),
+                                        'suite': row.get('Suite', ''),
+                                        'sub_suite': row.get('Sub Suite', ''),
+                                        'test_class': row.get('Test Class', ''),
+                                        'test_method': row.get('Test Method', ''),
+                                        'description': row.get('Description', ''),
+                                        'start_time': row.get('Start Time', ''),
+                                        'stop_time': row.get('Stop Time', ''),
+                                        **metadata
+                                    }
+                                    results['test_cases'].append(test_case)
+
+                                # Update summary counts based on CSV data
+                                results['total'] = len(results['test_cases'])
+                                results['passed_count'] = sum(
+                                    1 for tc in results['test_cases'] if tc['status'] == 'passed')
+                                results['failed_count'] = sum(
+                                    1 for tc in results['test_cases'] if tc['status'] == 'failed')
+                                results['skipped_count'] = sum(
+                                    1 for tc in results['test_cases'] if tc['status'] == 'skipped')
+
+                                # Count broken tests as failed since they indicate issues
+                                broken_count = sum(
+                                    1 for tc in results['test_cases'] if tc['status'] == 'broken')
+                                results['failed_count'] += broken_count
+
+                                logger.info(
+                                    f"Successfully extracted {len(results['test_cases'])} test cases from suites.csv")
+
+                        except Exception as csv_error:
+                            logger.warning(
+                                f"Could not parse suites.csv file {filename}: {csv_error}")
+                            continue
+
+            logger.info(
+                f"Successfully extracted results from zip file: {results}")
+            return results
+
+        except zipfile.BadZipFile as e:
+            logger.error(f"Invalid zip file {zip_file_path}: {e}")
+            return None
+        except Exception as e:
+            logger.error(
+                f"Error extracting results from zip file {zip_file_path}: {e}")
+            return None
 
     def _get_build_status(self, job_path, build_number):
         normalized_job = self._normalize_job_name(job_path)
@@ -124,7 +540,8 @@ class JenkinsService:
                                                      {}).get("value"),
                                 "description": param.get("description", "")})
             else:
-                parameters = self.get_job_parameters_via_property(normalized_job)
+                parameters = self.get_job_parameters_via_property(
+                    normalized_job)
             if parameters:
                 logger.info("Fetched %d parameters for job %s", len(parameters),
                             normalized_job)
@@ -231,8 +648,8 @@ class JenkinsService:
         null	    Build is still running (not yet completed)
         """
         if not job_name or job_name in [
-            'undefined', 'null', ''] or not build_number or build_number in [
-            'undefined', 'null', '']:
+                'undefined', 'null', ''] or not build_number or build_number in [
+                'undefined', 'null', '']:
             logger.warning(
                 f"Skipping invalid job_name={job_name},"
                 f" build_number={build_number}")
@@ -323,9 +740,9 @@ class JenkinsService:
             return "running"
         if result:
             self.mongo_client.update_jenkins_run_res(
-                    result,
-                    db_res.get("name"),
-                    datetime.utcnow().isoformat()
+                result,
+                db_res.get("name"),
+                datetime.utcnow().isoformat()
             )
 
         return result
@@ -341,7 +758,8 @@ class JenkinsService:
         job_path = extract_job_path(record.get("build_url"))
         match = re.search(r'/(\d+)/?$', record.get("build_url", ""))
         if not match:
-            logger.warning("Unable to determine build number from %s", record.get("build_url"))
+            logger.warning(
+                "Unable to determine build number from %s", record.get("build_url"))
             return record
 
         build_number = match.group(1)
@@ -349,7 +767,8 @@ class JenkinsService:
             build_info = self.server.get_build_info(job_path, int(build_number))
             result = build_info.get('result')
         except Exception as exc:
-            logger.error("Failed to fetch Jenkins result for %s #%s: %s", job_path, build_number, exc)
+            logger.error("Failed to fetch Jenkins result for %s #%s: %s",
+                         job_path, build_number, exc)
             return record
 
         if not result:
@@ -359,7 +778,8 @@ class JenkinsService:
             "res": result,
             "updated_at": datetime.utcnow().isoformat(),
         }
-        self.mongo_client.update_acceptable_test_record(record.get("_id") or record.get("name"), updates)
+        self.mongo_client.update_acceptable_test_record(
+            record.get("_id") or record.get("name"), updates)
         record.update(updates)
         return record
 
@@ -370,7 +790,8 @@ class JenkinsService:
             try:
                 refreshed.append(self.refresh_acceptable_test_result(record))
             except Exception as exc:
-                logger.error("Failed to refresh acceptable test record %s: %s", record, exc)
+                logger.error(
+                    "Failed to refresh acceptable test record %s: %s", record, exc)
                 refreshed.append(record)
         return refreshed
 
@@ -428,9 +849,43 @@ class JenkinsService:
         test_project = data.get("project", "ftm_ios")
         test_scope = data.get("test_scope", "acceptable")
 
+        # Handle template saving
+        save_as_template = custom_env.get("save_as_template", False)
+        template_name = custom_env.get("template_name")
+
+        if save_as_template and template_name:
+            try:
+                # Create template document
+                template_doc = {
+                    "id": str(uuid.uuid4()),
+                    "name": template_name,
+                    "platform": request_info.get("platform"),
+                    "test_scope": request_info.get("test_scope"),
+                    "test_product": request_info.get("test_product"),
+                    "environment": test_env,
+                    "device_type": request_info.get("device_type"),
+                    "timeout": request_info.get("timeout", 3600),
+                    "created_at": datetime.utcnow().isoformat(),
+                    "updated_at": datetime.utcnow().isoformat()
+                }
+
+                # Save template to MongoDB
+                self.mongo_client.insert_document(
+                    template_doc, collection="test_templates")
+                logger.info(f"Saved test template: {template_name}")
+            except Exception as e:
+                logger.error(f"Failed to save test template: {e}")
+
         try:
-            test_env_info = self.mongo_client.fetch_test_env_info(test_env,
-                                                                  custom_env)
+            try:
+                test_env_info = self.mongo_client.fetch_test_env_info(test_env,
+                                                                      custom_env)
+                logger.info(f"test env is {test_env_info}")
+            except Exception as e:
+                logger.error(f"Failed to fetch test environment info: {e}")
+                # If we can't fetch environment info, continue with empty dict
+                test_env_info = {}
+
             logger.info("Starting Jenkins run task", extra={
                 "project": test_project,
                 "environment": test_env,
@@ -438,7 +893,6 @@ class JenkinsService:
                 "parameters": request_info,
                 "custom_env": custom_env,
             })
-            logger.info(f"test env is {test_env_info}")
             threads = []
 
             for platform in test_platforms:
@@ -593,6 +1047,7 @@ class JenkinsService:
         except Exception as e:
             print(f"Failed to fetch parameters: {e}")
             return []
+
 
 # Create singleton instance
 jenkins_service = JenkinsService()

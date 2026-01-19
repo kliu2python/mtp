@@ -10,9 +10,11 @@ router = APIRouter()
 async def list_mantis_issues(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(5, ge=1, le=200, description="Items per page"),
-    search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
+    search: str | None = Query(
+        None, description="Search in summary, description, category or issue_id"),
     status: str | None = Query(None, description="Filter by status"),
-    exclude_statuses: list[str] | None = Query(None, description="Statuses to exclude (case-insensitive)"),
+    exclude_statuses: list[str] | None = Query(
+        None, description="Statuses to exclude (case-insensitive)"),
     priority: str | None = Query(None, description="Filter by priority"),
     severity: str | None = Query(None, description="Filter by severity"),
     category: str | None = Query(None, description="Filter by category"),
@@ -48,9 +50,11 @@ async def list_mantis_issues(
 
 @router.get("/all", summary="List all Mantis issues")
 async def list_all_mantis_issues(
-    search: str | None = Query(None, description="Search in summary, description, category or issue_id"),
+    search: str | None = Query(
+        None, description="Search in summary, description, category or issue_id"),
     status: str | None = Query(None, description="Filter by status"),
-    exclude_statuses: list[str] | None = Query(None, description="Statuses to exclude (case-insensitive)"),
+    exclude_statuses: list[str] | None = Query(
+        None, description="Statuses to exclude (case-insensitive)"),
     priority: str | None = Query(None, description="Filter by priority"),
     severity: str | None = Query(None, description="Filter by severity"),
     category: str | None = Query(None, description="Filter by category"),

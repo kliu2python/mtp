@@ -50,10 +50,11 @@ class DeviceStreamService:
                     logger.info(f"Connecting to device stream: {url}")
 
                     async with session.get(url) as response:
-                        
+
                         logger.info(f"response is {response}")
                         if response.status != 200:
-                            logger.error(f"Device stream HTTP {response.status}")
+                            logger.error(
+                                f"Device stream HTTP {response.status}")
                             await asyncio.sleep(5)
                             continue
 
@@ -72,7 +73,8 @@ class DeviceStreamService:
                             try:
                                 devices = json.loads(payload)
                             except json.JSONDecodeError:
-                                logger.warning("Failed to parse device stream JSON")
+                                logger.warning(
+                                    "Failed to parse device stream JSON")
                                 continue
 
                             async with self.cache_lock:
@@ -132,7 +134,8 @@ class DeviceStreamService:
         devices = await self.get_cached_devices()
 
         ios = sum(1 for d in devices if d.get("info", {}).get("os") == "ios")
-        android = sum(1 for d in devices if d.get("info", {}).get("os") == "android")
+        android = sum(1 for d in devices if d.get(
+            "info", {}).get("os") == "android")
         available = sum(1 for d in devices if d.get("available"))
         in_use = sum(1 for d in devices if d.get("in_use"))
 

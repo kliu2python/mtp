@@ -51,7 +51,8 @@ async def list_stf_devices():
         }
     except Exception as e:
         logger.error(f"Failed to fetch STF devices: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch STF devices: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch STF devices: {str(e)}")
 
 
 @router.post("/sync")
@@ -83,7 +84,8 @@ async def sync_stf_devices(
             device_id = device_data['device_id']
 
             if not device_id:
-                logger.warning(f"Skipping device without serial: {stf_device.get('name')}")
+                logger.warning(
+                    f"Skipping device without serial: {stf_device.get('name')}")
                 skipped_count += 1
                 continue
 
@@ -107,7 +109,8 @@ async def sync_stf_devices(
                     # Merge metadata
                     if existing_device.capabilities is None:
                         existing_device.capabilities = {}
-                    existing_device.capabilities.update(device_data.get('metadata', {}))
+                    existing_device.capabilities.update(
+                        device_data.get('metadata', {}))
 
                     updated_count += 1
                 else:
@@ -132,7 +135,8 @@ async def sync_stf_devices(
                     # Add metadata
                     if new_device.capabilities is None:
                         new_device.capabilities = {}
-                    new_device.capabilities.update(device_data.get('metadata', {}))
+                    new_device.capabilities.update(
+                        device_data.get('metadata', {}))
 
                     db.add(new_device)
                     created_count += 1
@@ -141,7 +145,8 @@ async def sync_stf_devices(
 
         db.commit()
 
-        logger.info(f"STF sync completed: {created_count} created, {updated_count} updated, {skipped_count} skipped")
+        logger.info(
+            f"STF sync completed: {created_count} created, {updated_count} updated, {skipped_count} skipped")
 
         return {
             "message": "STF devices synced successfully",
@@ -152,7 +157,8 @@ async def sync_stf_devices(
         }
     except Exception as e:
         logger.error(f"Failed to sync STF devices: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to sync STF devices: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to sync STF devices: {str(e)}")
 
 
 @router.post("/devices/{device_id}/reserve")
@@ -174,9 +180,11 @@ async def reserve_stf_device(
     """
     try:
         # Get device from database
-        device = db.query(TestDevice).filter(TestDevice.device_id == device_id).first()
+        device = db.query(TestDevice).filter(
+            TestDevice.device_id == device_id).first()
         if not device:
-            raise HTTPException(status_code=404, detail="Device not found in MTP database")
+            raise HTTPException(
+                status_code=404, detail="Device not found in MTP database")
 
         # Reserve through STF
         stf_client = get_stf_client()
@@ -200,7 +208,8 @@ async def reserve_stf_device(
         raise
     except Exception as e:
         logger.error(f"Failed to reserve device {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to reserve device: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to reserve device: {str(e)}")
 
 
 @router.post("/devices/{device_id}/release")
@@ -220,9 +229,11 @@ async def release_stf_device(
     """
     try:
         # Get device from database
-        device = db.query(TestDevice).filter(TestDevice.device_id == device_id).first()
+        device = db.query(TestDevice).filter(
+            TestDevice.device_id == device_id).first()
         if not device:
-            raise HTTPException(status_code=404, detail="Device not found in MTP database")
+            raise HTTPException(
+                status_code=404, detail="Device not found in MTP database")
 
         # Release through STF
         stf_client = get_stf_client()
@@ -245,7 +256,8 @@ async def release_stf_device(
         raise
     except Exception as e:
         logger.error(f"Failed to release device {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to release device: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to release device: {str(e)}")
 
 
 @router.get("/devices/{device_id}")
@@ -264,7 +276,8 @@ async def get_stf_device_info(device_id: str):
         device_info = stf_client.get_device_info(device_id)
 
         if not device_info:
-            raise HTTPException(status_code=404, detail="Device not found in STF")
+            raise HTTPException(
+                status_code=404, detail="Device not found in STF")
 
         return {
             "device": stf_client.normalize_device_data(device_info),
@@ -274,7 +287,8 @@ async def get_stf_device_info(device_id: str):
         raise
     except Exception as e:
         logger.error(f"Failed to get device info for {device_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get device info: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get device info: {str(e)}")
 
 
 @router.get("/user/devices")
@@ -295,7 +309,8 @@ async def get_user_devices():
         }
     except Exception as e:
         logger.error(f"Failed to get user devices: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get user devices: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get user devices: {str(e)}")
 
 
 @router.get("/stats")
@@ -318,9 +333,11 @@ async def get_stf_stats(db: Session = Depends(get_db)):
             TestDevice.connection_type == 'stf'
         ).all()
 
-        available_stf = sum(1 for d in all_stf_devices if d.get('ready', False) and not d.get('using', False))
+        available_stf = sum(1 for d in all_stf_devices if d.get(
+            'ready', False) and not d.get('using', False))
         busy_stf = sum(1 for d in all_stf_devices if d.get('using', False))
-        offline_stf = sum(1 for d in all_stf_devices if not d.get('present', False))
+        offline_stf = sum(
+            1 for d in all_stf_devices if not d.get('present', False))
 
         return {
             "stf_total_devices": len(all_stf_devices),
@@ -333,7 +350,8 @@ async def get_stf_stats(db: Session = Depends(get_db)):
         }
     except Exception as e:
         logger.error(f"Failed to get STF stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get STF stats: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get STF stats: {str(e)}")
 
 
 @router.post("/test-connection")
@@ -362,4 +380,5 @@ async def test_stf_connection():
         }
     except Exception as e:
         logger.error(f"STF connection test failed: {e}")
-        raise HTTPException(status_code=500, detail=f"STF connection failed: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"STF connection failed: {str(e)}")

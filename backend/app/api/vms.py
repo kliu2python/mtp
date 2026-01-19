@@ -27,6 +27,13 @@ from app.services.ssh_session import (
     SPECIAL_SEND_KEYS,
 )
 
+# FortiAuthenticator testing
+from app.services.fac_manager import (
+    test_fortiauthenticator_connectivity,
+    test_fortiauthenticator_user_creation
+)
+from app.services.fac_test_timestamps import record_fac_test_timestamp
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -35,13 +42,10 @@ class VMCreate(BaseModel):
     name: str
     platform: str
     version: str
-    test_priority: int = 3
     ip_address: Optional[str] = None
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
-    web_url: Optional[str] = None
-    web_username: Optional[str] = None
-    web_password: Optional[str] = None
+    api_key: Optional[str] = None
 
 
 class VMUpdate(BaseModel):
@@ -51,11 +55,8 @@ class VMUpdate(BaseModel):
     ip_address: Optional[str] = None
     ssh_username: Optional[str] = None
     ssh_password: Optional[str] = None
-    web_url: Optional[str] = None
-    web_username: Optional[str] = None
-    web_password: Optional[str] = None
+    api_key: Optional[str] = None
     status: Optional[str] = None
-    test_priority: Optional[int] = None
     tags: Optional[List[str]] = None
 
 
@@ -69,14 +70,14 @@ async def list_vms(
 ):
     """List all VMs with optional filters"""
     query = db.query(VirtualMachine)
-    
+
     if platform:
         query = query.filter(VirtualMachine.platform == platform)
     if status:
         query = query.filter(VirtualMachine.status == status)
-    
+
     vms = query.offset(skip).limit(limit).all()
-    
+
     return {
         "total": query.count(),
         "vms": [vm.to_dict() for vm in vms]
@@ -89,7 +90,7 @@ async def get_vm(vm_id: str, db: Session = Depends(get_db)):
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    
+
     return vm.to_dict()
 
 
@@ -97,28 +98,26 @@ async def get_vm(vm_id: str, db: Session = Depends(get_db)):
 async def create_vm(vm_data: VMCreate, db: Session = Depends(get_db)):
     """Create a new VM"""
     # Check if name already exists
-    existing = db.query(VirtualMachine).filter(VirtualMachine.name == vm_data.name).first()
+    existing = db.query(VirtualMachine).filter(
+        VirtualMachine.name == vm_data.name).first()
     if existing:
         raise HTTPException(status_code=400, detail="VM name already exists")
-    
+
     vm = VirtualMachine(
         name=vm_data.name,
         platform=VMPlatform(vm_data.platform),
         version=vm_data.version,
-        test_priority=vm_data.test_priority,
         ip_address=vm_data.ip_address,
         ssh_username=vm_data.ssh_username,
         ssh_password=vm_data.ssh_password,
-        web_url=vm_data.web_url,
-        web_username=vm_data.web_username,
-        web_password=vm_data.web_password,
+        api_key=vm_data.api_key,
         status=VMStatus.STOPPED
     )
-    
+
     db.add(vm)
     db.commit()
     db.refresh(vm)
-    
+
     return vm.to_dict()
 
 
@@ -128,7 +127,7 @@ async def update_vm(vm_id: str, vm_data: VMUpdate, db: Session = Depends(get_db)
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    
+
     if vm_data.name is not None:
         vm.name = vm_data.name
     if vm_data.platform is not None:
@@ -141,23 +140,17 @@ async def update_vm(vm_id: str, vm_data: VMUpdate, db: Session = Depends(get_db)
         vm.ssh_username = vm_data.ssh_username
     if vm_data.ssh_password is not None:
         vm.ssh_password = vm_data.ssh_password
-    if vm_data.web_url is not None:
-        vm.web_url = vm_data.web_url
-    if vm_data.web_username is not None:
-        vm.web_username = vm_data.web_username
-    if vm_data.web_password is not None:
-        vm.web_password = vm_data.web_password
+    if vm_data.api_key is not None:
+        vm.api_key = vm_data.api_key
     if vm_data.status:
         vm.status = VMStatus(vm_data.status)
-    if vm_data.test_priority is not None:
-        vm.test_priority = vm_data.test_priority
     if vm_data.tags is not None:
         vm.tags = vm_data.tags
-    
+
     vm.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(vm)
-    
+
     return vm.to_dict()
 
 
@@ -167,10 +160,10 @@ async def delete_vm(vm_id: str, db: Session = Depends(get_db)):
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    
+
     db.delete(vm)
     db.commit()
-    
+
     return {"message": "VM deleted successfully"}
 
 
@@ -210,7 +203,8 @@ async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(ge
     intro_lines = [
         f"Connecting to {vm.ip_address} as {vm.ssh_username}...",
         f"Session log: {session.log_path}",
-        "Special keys: " + ", ".join(sorted(SPECIAL_SEND_KEYS.keys())) + ", Ctrl+<letter>",
+        "Special keys: " +
+        ", ".join(sorted(SPECIAL_SEND_KEYS.keys())) + ", Ctrl+<letter>",
         "Press Ctrl+D to terminate the session.",
         "",
     ]
@@ -290,6 +284,7 @@ async def ssh_console(websocket: WebSocket, vm_id: str, db: Session = Depends(ge
         with contextlib.suppress(Exception):
             await websocket.close()
 
+
 @router.get("/{vm_id}/tests")
 async def get_vm_test_records(
     vm_id: str,
@@ -301,13 +296,13 @@ async def get_vm_test_records(
     vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
     if not vm:
         raise HTTPException(status_code=404, detail="VM not found")
-    
+
     records = db.query(TestRecord).filter(
         TestRecord.vm_id == vm_id
     ).order_by(
         TestRecord.executed_at.desc()
     ).offset(skip).limit(limit).all()
-    
+
     return {
         "total": db.query(TestRecord).filter(TestRecord.vm_id == vm_id).count(),
         "records": [record.to_dict() for record in records]
@@ -325,7 +320,7 @@ async def get_stats_summary(db: Session = Depends(get_db)):
     testing_vms = db.query(VirtualMachine).filter(
         VirtualMachine.status == VMStatus.TESTING
     ).count()
-    
+
     # Platform distribution
     fortigate_count = db.query(VirtualMachine).filter(
         VirtualMachine.platform == VMPlatform.FORTIGATE
@@ -333,13 +328,13 @@ async def get_stats_summary(db: Session = Depends(get_db)):
     fortiauthenticator_count = db.query(VirtualMachine).filter(
         VirtualMachine.platform == VMPlatform.FORTIAUTHENTICATOR
     ).count()
-    
+
     # Test statistics (last 24 hours)
     yesterday = datetime.utcnow() - timedelta(days=1)
     recent_tests = db.query(TestRecord).filter(
         TestRecord.executed_at >= yesterday
     ).all()
-    
+
     total_tests = len(recent_tests)
     passed_tests = sum(1 for t in recent_tests if t.status == "passed")
     failed_tests = sum(1 for t in recent_tests if t.status == "failed")
@@ -366,3 +361,71 @@ async def get_stats_summary(db: Session = Depends(get_db)):
             "pass_rate": round(passed_tests / total_tests * 100, 2) if total_tests > 0 else 0
         }
     }
+
+
+@router.post("/{vm_id}/test-fac-connectivity")
+async def test_fac_connectivity(vm_id: str, db: Session = Depends(get_db)):
+    """Test FortiAuthenticator connectivity"""
+    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+
+    # Check if this is a FortiAuthenticator VM
+    if vm.platform != VMPlatform.FORTIAUTHENTICATOR:
+        raise HTTPException(status_code=400, detail="This test is only available for FortiAuthenticator VMs")
+
+    # Check if we have the required connection details
+    if not vm.ip_address or not vm.ssh_username or not vm.api_key:
+        raise HTTPException(status_code=400, detail="Missing required connection details (IP, username, or API key)")
+
+    # Test connectivity
+    result = test_fortiauthenticator_connectivity(
+        host=vm.ip_address,
+        username=vm.ssh_username,
+        api_key=vm.api_key
+    )
+
+    # Record timestamp of successful test
+    if result.get("success"):
+        record_fac_test_timestamp(vm_id)
+
+    # Return the test result
+    return result
+
+
+@router.post("/{vm_id}/test-fac-user-creation")
+async def test_fac_user_creation(vm_id: str, db: Session = Depends(get_db)):
+    """Test FortiAuthenticator user creation with FTK and FTC"""
+    vm = db.query(VirtualMachine).filter(VirtualMachine.id == vm_id).first()
+    if not vm:
+        raise HTTPException(status_code=404, detail="VM not found")
+
+    # Check if this is a FortiAuthenticator VM
+    if vm.platform != VMPlatform.FORTIAUTHENTICATOR:
+        raise HTTPException(status_code=400, detail="This test is only available for FortiAuthenticator VMs")
+
+    # Check if we have the required connection details
+    if not vm.ip_address or not vm.ssh_username or not vm.api_key:
+        raise HTTPException(status_code=400, detail="Missing required connection details (IP, username, or API key)")
+
+    # Test user creation
+    result = test_fortiauthenticator_user_creation(
+        host=vm.ip_address,
+        username=vm.ssh_username,
+        api_key=vm.api_key
+    )
+
+    # Record timestamp of successful test
+    if result.get("ftm_user_creation", {}).get("success") and result.get("ftc_user_creation", {}).get("success"):
+        record_fac_test_timestamp(vm_id)
+
+    # Return the test result
+    return result
+
+
+@router.get("/{vm_id}/fac-test-timestamp")
+async def get_fac_test_timestamp(vm_id: str):
+    """Get the timestamp of the last successful FAC test for a VM"""
+    from app.services.fac_test_timestamps import get_fac_test_timestamp
+    timestamp = get_fac_test_timestamp(vm_id)
+    return {"timestamp": timestamp}

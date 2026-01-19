@@ -27,6 +27,7 @@ from app.api import (
     mantis,
     cloud,
     release_tests,
+    test_templates,
 )
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
@@ -43,21 +44,28 @@ def _ensure_optional_columns():
     inspector = inspect(engine)
 
     # Check virtual_machines table
-    vm_columns = {col["name"] for col in inspector.get_columns("virtual_machines")}
+    vm_columns = {col["name"]
+                  for col in inspector.get_columns("virtual_machines")}
 
     vm_statements = []
     if "ssh_username" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN ssh_username VARCHAR NULL"))
     if "ssh_password" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN ssh_password VARCHAR NULL"))
     if "provider" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN provider VARCHAR NULL"))
     if "web_url" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN web_url VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN web_url VARCHAR NULL"))
     if "web_username" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN web_username VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN web_username VARCHAR NULL"))
     if "web_password" not in vm_columns:
-        vm_statements.append(text("ALTER TABLE virtual_machines ADD COLUMN web_password VARCHAR NULL"))
+        vm_statements.append(
+            text("ALTER TABLE virtual_machines ADD COLUMN web_password VARCHAR NULL"))
 
     if vm_statements:
         with engine.begin() as connection:
@@ -75,17 +83,22 @@ def _ensure_optional_columns():
         ))
 
     # Check test_records table for new columns
-    test_records_columns = {col["name"] for col in inspector.get_columns("test_records")}
+    test_records_columns = {col["name"]
+                            for col in inspector.get_columns("test_records")}
 
     test_statements = []
     if "apk_file_id" not in test_records_columns:
-        test_statements.append(text("ALTER TABLE test_records ADD COLUMN apk_file_id UUID NULL"))
+        test_statements.append(
+            text("ALTER TABLE test_records ADD COLUMN apk_file_id UUID NULL"))
     if "jenkins_job_name" not in test_records_columns:
-        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_job_name VARCHAR NULL"))
+        test_statements.append(
+            text("ALTER TABLE test_records ADD COLUMN jenkins_job_name VARCHAR NULL"))
     if "jenkins_build_number" not in test_records_columns:
-        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_build_number INTEGER NULL"))
+        test_statements.append(
+            text("ALTER TABLE test_records ADD COLUMN jenkins_build_number INTEGER NULL"))
     if "jenkins_build_url" not in test_records_columns:
-        test_statements.append(text("ALTER TABLE test_records ADD COLUMN jenkins_build_url VARCHAR NULL"))
+        test_statements.append(
+            text("ALTER TABLE test_records ADD COLUMN jenkins_build_url VARCHAR NULL"))
 
     if test_statements:
         with engine.begin() as connection:
@@ -140,7 +153,8 @@ app.add_middleware(
 # Include routers
 # Authentication routes (public)
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(saml_auth.router, prefix="/api/saml", tags=["SAML Authentication"])
+app.include_router(saml_auth.router, prefix="/api/saml",
+                   tags=["SAML Authentication"])
 
 # Application routes
 app.include_router(cloud.router, prefix="/api/cloud", tags=["Cloud"])
@@ -150,11 +164,15 @@ app.include_router(files.router, prefix="/api/files", tags=["Files"])
 app.include_router(stf.router, prefix="/api/stf", tags=["STF"])
 app.include_router(ai_analysis.router, prefix="/api/ai", tags=["AI Analysis"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
-app.include_router(device_proxy.router, prefix="/api/device", tags=["Device Proxy"])
+app.include_router(device_proxy.router, prefix="/api/device",
+                   tags=["Device Proxy"])
 app.include_router(jenkins_api.router, prefix="/api/jenkins", tags=["Jenkins"])
-app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(settings_api.router,
+                   prefix="/api/settings", tags=["Settings"])
 app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
 app.include_router(release_tests.router, prefix="/api", tags=["Release Tests"])
+app.include_router(test_templates.router, prefix="/api",
+                   tags=["Test Templates"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

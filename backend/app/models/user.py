@@ -44,7 +44,8 @@ class User(Base):
     saml_attributes = Column(JSON, default=dict)  # SAML user attributes
 
     # Authentication Provider
-    auth_provider = Column(SQLEnum(AuthProvider), default=AuthProvider.LOCAL, nullable=False)
+    auth_provider = Column(SQLEnum(AuthProvider),
+                           default=AuthProvider.LOCAL, nullable=False)
 
     # Authorization
     role = Column(SQLEnum(UserRole), default=UserRole.USER, nullable=False)
@@ -62,7 +63,8 @@ class User(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow,
+                        onupdate=datetime.utcnow, nullable=False)
     deleted_at = Column(DateTime, nullable=True)  # Soft delete
 
     def to_dict(self, include_sensitive=False):

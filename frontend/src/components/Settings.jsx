@@ -12,15 +12,15 @@ const defaultSettings = {
   jenkins_url: '',
   jenkins_username: '',
   jenkins_api_token: '',
-  ai_provider: 'litellm',
-  ai_base_url: 'https://litellm.ai-server.fortiappsec.com',
-  ai_api_key: 'sk-a122sVi4BhKo8XhtRx3Epg',
-  ai_model: 'qwen3-235b-a22b',
-  artifact_storage_path: '/var/lib/mtp/artifacts',
+  ai_provider: '',
+  ai_base_url: '',
+  ai_api_key: '',
+  ai_model: '',
+  artifact_storage_path: '',
   notification_email: '',
 };
 
-function Settings({ onSettingsChange, initialSettings }) {
+function Settings({ onSettingsChange }) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
@@ -29,28 +29,11 @@ function Settings({ onSettingsChange, initialSettings }) {
     ...settings,
   });
 
-  const fetchSettings = async () => {
-    setLoading(true);
-    try {
-      const { data } = await axios.get(`${API_URL}/api/settings`);
-      const merged = normalizeSettings(data);
-      form.setFieldsValue(merged);
-      onSettingsChange?.(merged);
-    } catch (error) {
-      message.error('Failed to load saved settings');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Initialize form with empty values only
   useEffect(() => {
-    if (initialSettings) {
-      form.setFieldsValue(normalizeSettings(initialSettings));
-    } else {
-      fetchSettings();
-    }
+    form.setFieldsValue(defaultSettings);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSettings]);
+  }, []);
 
   const handleSubmit = async (values) => {
     setLoading(true);

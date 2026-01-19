@@ -10,10 +10,14 @@ class JenkinsJobTrigger(BaseModel):
     """Schema for triggering a Jenkins job"""
 
     job_name: str = Field(..., description="Name of the Jenkins job to trigger")
-    parameters: Optional[Dict[str, Any]] = Field(None, description="Optional job parameters")
-    jenkins_url: Optional[str] = Field(None, description="Override Jenkins base URL for this trigger")
-    username: Optional[str] = Field(None, description="Override Jenkins username for this trigger")
-    api_token: Optional[str] = Field(None, description="Override Jenkins API token for this trigger")
+    parameters: Optional[Dict[str, Any]] = Field(
+        None, description="Optional job parameters")
+    jenkins_url: Optional[str] = Field(
+        None, description="Override Jenkins base URL for this trigger")
+    username: Optional[str] = Field(
+        None, description="Override Jenkins username for this trigger")
+    api_token: Optional[str] = Field(
+        None, description="Override Jenkins API token for this trigger")
 
 
 class JenkinsJobInfo(BaseModel):
