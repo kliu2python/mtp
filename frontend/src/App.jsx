@@ -11,6 +11,7 @@ import {
   MobileOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import './App.css';
 import Dashboard from './components/Dashboard';
@@ -23,6 +24,7 @@ import PreFlight from './components/PreFlight';
 import AcceptableTestDetail from './components/AcceptableTestDetail';
 import ReleaseTestsByVersion from './components/ReleaseTestsByVersion';
 import ReleaseTestDetails from './components/ReleaseTestDetails';
+import FortiTokenWarehouse from './components/FortiTokenWarehouse';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -36,6 +38,7 @@ function MenuContent({ collapsed, settings }) {
     { key: '/preflight', icon: <SafetyCertificateOutlined />, label: 'PreFlight', path: '/preflight' },
     { key: '/devices', icon: <MobileOutlined />, label: 'Devices', path: '/devices' },
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
+    { key: '/fortitokens', icon: <KeyOutlined />, label: 'Warehouse', path: '/fortitokens' },
     { key: '/release-tests', icon: <AppstoreOutlined />, label: 'Release Tests', path: '/release-tests' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
@@ -173,6 +176,7 @@ function App() {
               <Route path="/testbed" element={<VMs />} />
               <Route path="/devices" element={<Devices />} />
               <Route path="/files" element={<Files />} />
+              <Route path="/fortitokens" element={<FortiTokenWarehouse />} />
               <Route path="/mantis" element={<Mantis />} />
               <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
               <Route path="/preflight/acceptable/:platform/:id" element={<AcceptableTestDetail />} />
