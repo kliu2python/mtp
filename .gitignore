@@ -34,4 +34,8 @@ certs/*.pem
 backend/data/mantis_data.db
 backend/__pycache__/**
 
+# Upload directories                                                   
+backend/app/api/uploads/                                               
+backend/app/api/uploads/**    
+
 test-files/**
