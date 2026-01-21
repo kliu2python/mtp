@@ -29,6 +29,7 @@ from app.api import (
     release_tests,
     test_templates,
 )
+from app.api.fortitokens import router as fortitokens_router
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -173,6 +174,7 @@ app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
 app.include_router(release_tests.router, prefix="/api", tags=["Release Tests"])
 app.include_router(test_templates.router, prefix="/api",
                    tags=["Test Templates"])
+app.include_router(fortitokens_router, prefix="/api/fortitokens", tags=["FortiTokens"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")
