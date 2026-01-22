@@ -146,7 +146,7 @@ const FortiTokenWarehouse = () => {
 
       <Card>
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <p>Total available tokens: <strong>{availableTokens}</strong></p>
+          <p>Total available Activation Code: <strong>{availableTokens}</strong></p>
 
           <Space size="large">
             <Button
