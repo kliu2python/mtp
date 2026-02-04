@@ -764,8 +764,17 @@ class JenkinsService:
 
         build_number = match.group(1)
         try:
-            build_info = self.server.get_build_info(job_path, int(build_number))
+            # Add timeout to prevent hanging requests
+            build_info = self.server.get_build_info(job_path, int(build_number), depth=0)
             result = build_info.get('result')
+        except jenkins.TimeoutException:
+            logger.warning("Timeout fetching Jenkins result for %s #%s",
+                         job_path, build_number)
+            return record
+        except jenkins.JenkinsException as exc:
+            logger.warning("Jenkins error fetching result for %s #%s: %s",
+                         job_path, build_number, exc)
+            return record
         except Exception as exc:
             logger.error("Failed to fetch Jenkins result for %s #%s: %s",
                          job_path, build_number, exc)
@@ -778,9 +787,13 @@ class JenkinsService:
             "res": result,
             "updated_at": datetime.utcnow().isoformat(),
         }
-        self.mongo_client.update_acceptable_test_record(
-            record.get("_id") or record.get("name"), updates)
-        record.update(updates)
+        try:
+            self.mongo_client.update_acceptable_test_record(
+                record.get("_id") or record.get("name"), updates)
+            record.update(updates)
+        except Exception as exc:
+            logger.error("Failed to update acceptable test record %s: %s",
+                         record.get("name"), exc)
         return record
 
     def refresh_acceptable_test_records(self, records: list):
@@ -791,7 +804,7 @@ class JenkinsService:
                 refreshed.append(self.refresh_acceptable_test_result(record))
             except Exception as exc:
                 logger.error(
-                    "Failed to refresh acceptable test record %s: %s", record, exc)
+                    "Failed to refresh acceptable test record %s: %s", record.get('name') if isinstance(record, dict) else record, exc)
                 refreshed.append(record)
         return refreshed
 

@@ -3,6 +3,8 @@ Jenkins API endpoints
 """
 from fastapi import APIRouter, Request, HTTPException
 import uuid
+import threading
+import time
 
 from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService
 from app.services.mongodb import MongoDBAPI
@@ -182,7 +184,34 @@ def GetAcceptableTestRecords():
     try:
         mongo_client = MongoDBAPI()
         records = mongo_client.get_acceptable_test_records()
-        records = runner.refresh_acceptable_test_records(records)
+
+        # Refresh records with timeout to prevent gateway timeout
+        refreshed_records = records  # Default to original records
+        refresh_exception = None
+
+        def refresh_worker():
+            nonlocal refreshed_records, refresh_exception
+            try:
+                refreshed_records = runner.refresh_acceptable_test_records(records)
+            except Exception as exc:
+                refresh_exception = exc
+
+        # Create and start refresh thread
+        refresh_thread = threading.Thread(target=refresh_worker)
+        refresh_thread.daemon = True
+        refresh_thread.start()
+
+        # Wait for completion with timeout (30 seconds)
+        refresh_thread.join(timeout=30)
+
+        # If thread is still alive, it timed out
+        if refresh_thread.is_alive():
+            logger.warning("Refreshing acceptable test records timed out, returning possibly stale data")
+        elif refresh_exception:
+            logger.warning("Error refreshing acceptable test records: %s", refresh_exception)
+        else:
+            records = refreshed_records
+
         sorted_records = sorted(
             records,
             key=lambda item: item.get(

@@ -29,7 +29,7 @@ from app.api import (
     release_tests,
     test_templates,
 )
-from app.api.fortitokens import router as fortitokens_router
+from app.api.warehouse import router as warehouse_router
 from app.services.websocket_manager import manager
 from sqlalchemy import inspect, text
 
@@ -38,6 +38,8 @@ from app.models.user import User
 from app.models.settings import PlatformSettings
 from app.models.cloud_service import CloudService
 from app.models.release_test import ReleaseCandidateTest
+from app.models.license import License
+from app.models.fortitoken import FortiToken
 
 
 def _ensure_optional_columns():
@@ -104,6 +106,20 @@ def _ensure_optional_columns():
     if test_statements:
         with engine.begin() as connection:
             for statement in test_statements:
+                connection.execute(statement)
+
+    # Check licenses table for size column
+    licenses_columns = {col["name"]
+                        for col in inspector.get_columns("licenses")}
+
+    licenses_statements = []
+    if "size" not in licenses_columns:
+        licenses_statements.append(
+            text("ALTER TABLE licenses ADD COLUMN size VARCHAR NULL"))
+
+    if licenses_statements:
+        with engine.begin() as connection:
+            for statement in licenses_statements:
                 connection.execute(statement)
 
 
@@ -174,7 +190,7 @@ app.include_router(mantis.router, prefix="/api/mantis", tags=["Mantis"])
 app.include_router(release_tests.router, prefix="/api", tags=["Release Tests"])
 app.include_router(test_templates.router, prefix="/api",
                    tags=["Test Templates"])
-app.include_router(fortitokens_router, prefix="/api/fortitokens", tags=["FortiTokens"])
+app.include_router(warehouse_router, prefix="/api/warehouse", tags=["Warehouse"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

@@ -11,7 +11,7 @@ logger = get_logger()
 
 class MongoDBAPI:
     def __init__(self,
-                 api_base="http://10.160.24.88:31742/api/v1/mongodb/document",
+                 api_base="http://10.160.24.17:31742/api/v1/mongodb/document",
                  db_name="jenkins",
                  collection="jobs"):
         """
@@ -29,10 +29,13 @@ class MongoDBAPI:
         """Fetch all test templates from the MongoDB collection."""
         url = self._url(f"find?db={self.db}&collection=test_templates")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
             return data.get("documents", [])
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching test templates from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching test templates from MongoDB: {e}")
             return []
@@ -47,11 +50,14 @@ class MongoDBAPI:
         url = self._url(
             f"find?db={self.db}&collection=test_templates&filter={encoded_filter}")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
             templates = data.get("documents", [])
             return templates[0] if templates else None
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching test template from MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching test template from MongoDB: {e}")
             return None
@@ -68,9 +74,12 @@ class MongoDBAPI:
         }
         url = self._url(f"update?db={self.db}&collection=test_templates")
         try:
-            response = requests.put(url, json=update_body)
+            response = requests.put(url, json=update_body, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout updating test template in MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error updating test template in MongoDB: {e}")
             return None
@@ -82,10 +91,13 @@ class MongoDBAPI:
         }
         url = self._url(f"delete?db={self.db}&collection=test_templates")
         try:
-            response = requests.delete(url, json=delete_body)
+            response = requests.delete(url, json=delete_body, timeout=30)
             response.raise_for_status()
             data = response.json()
             return data.get("deletedCount", 0) > 0
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout deleting test template from MongoDB")
+            return False
         except requests.exceptions.RequestException as e:
             logger.error(f"Error deleting test template from MongoDB: {e}")
             return False
@@ -101,9 +113,12 @@ class MongoDBAPI:
             collection = self.collection
         url = self._url(f"insert?db={db}&collection={collection}")
         try:
-            response = requests.post(url, json=document)
+            response = requests.post(url, json=document, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout inserting document into MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error inserting document into MongoDB: {e}")
             return None
@@ -129,7 +144,7 @@ class MongoDBAPI:
         """Fetch acceptable test records from MongoDB."""
         url = self._url(f"find?db={self.db}&collection=acceptable_tests")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()
             data = response.json()
             records = data.get("documents", [])
@@ -137,6 +152,10 @@ class MongoDBAPI:
                 "Fetched %d acceptable test records from MongoDB", len(records)
             )
             return records
+        except requests.exceptions.Timeout:
+            logger.error(
+                f"Timeout fetching acceptable test records from MongoDB {url}")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(
                 f"Error fetching acceptable test records from MongoDB: {e}")
@@ -160,7 +179,7 @@ class MongoDBAPI:
 
         url = self._url(f"update?db={self.db}&collection=acceptable_tests")
         try:
-            response = requests.put(url, json=update_body)
+            response = requests.put(url, json=update_body, timeout=30)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -183,9 +202,12 @@ class MongoDBAPI:
         delete_body = {"filter": filter_body}
         url = self._url(f"delete?db={self.db}&collection=acceptable_tests")
         try:
-            response = requests.delete(url, json=delete_body)
+            response = requests.delete(url, json=delete_body, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout deleting acceptable test record")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error deleting acceptable test record: {e}")
             return None
@@ -206,7 +228,7 @@ class MongoDBAPI:
                             f"&filter={encoded_filter}"
                             f"&projection={projection_filter}")
         try:
-            response = requests.get(get_url)
+            response = requests.get(get_url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             # Assuming that data contains a list of job names
@@ -215,6 +237,12 @@ class MongoDBAPI:
             elif not data["documents"][0]["builds"].get(build_num):
                 return []
             return data["documents"][0]["builds"][build_num]["res"]
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -231,10 +259,13 @@ class MongoDBAPI:
             }
         }
         url = self._url(f"update?db={self.db}&collection={self.collection}")
-        response = requests.put(url, json=update_body)
         try:
+            response = requests.put(url, json=update_body, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout updating document in MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error inserting document into MongoDB: {e}")
             return None
@@ -252,10 +283,13 @@ class MongoDBAPI:
             }
         }
         url = self._url(f"update?db={self.db}&collection=runner")
-        response = requests.put(url, json=update_body)
         try:
+            response = requests.put(url, json=update_body, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout updating document in MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error inserting document into MongoDB: {e}")
             return None
@@ -271,7 +305,7 @@ class MongoDBAPI:
             f"&filter={encoded_filter}"
         )
 
-        get_response = requests.get(get_url)
+        get_response = requests.get(get_url, timeout=30)
         if len(get_response.json().get("documents")) > 0:
             env_info = get_response.json().get("documents")[0]
         elif custom_env:
@@ -310,9 +344,12 @@ class MongoDBAPI:
         }
 
         try:
-            response = requests.put(update_url, json=update_body)
+            response = requests.put(update_url, json=update_body, timeout=30)
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout updating group in MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error update group into MongoDB: {e}")
             return None
@@ -331,7 +368,7 @@ class MongoDBAPI:
                 f"&collection={self.collection}&filter={encoded_filter}"
             )
 
-            get_response = requests.get(get_url)
+            get_response = requests.get(get_url, timeout=30)
             if len(get_response.json().get("documents")) > 0:
                 transformed_filter = db_filter
                 if document.get("documents")[0] == get_response.json().get(
@@ -350,7 +387,7 @@ class MongoDBAPI:
                 }
                 url = self._url(
                     f"update?db={self.db}&collection={self.collection}")
-                response = requests.put(url, json=update_body)
+                response = requests.put(url, json=update_body, timeout=30)
             else:
                 url = self._url(f"insert?db={self.db}&collection"
                                 f"={self.collection}")
@@ -360,14 +397,17 @@ class MongoDBAPI:
                     json_body = document.get("documents")
                     if isinstance(json_body, list) and len(json_body) > 0:
                         json_body = json_body[0]
-                response = requests.post(url, json=json_body)
+                response = requests.post(url, json=json_body, timeout=30)
         else:
             url = self._url(f"insert?db={self.db}&collection"
                             f"={self.collection}")
-            response = requests.post(url, json=document)
+            response = requests.post(url, json=document, timeout=30)
         try:
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout updating document in MongoDB")
+            return None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error inserting document into MongoDB: {e}")
             return None
@@ -383,11 +423,17 @@ class MongoDBAPI:
             "filter": {"name": job_name}
         }
         try:
-            response = requests.delete(url, json=body)
+            response = requests.delete(url, json=body, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             # Assuming that data contains a list of job names
             return data
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout deleting job from MongoDB")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -396,11 +442,17 @@ class MongoDBAPI:
         """Fetch all job names from the MongoDB collection."""
         url = self._url(f"find?db={self.db}&collection={self.collection}")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             # Assuming that data contains a list of job names
             return data
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -409,7 +461,7 @@ class MongoDBAPI:
         """Fetch all job names from the MongoDB collection."""
         url = self._url(f"find?db={self.db}&collection=groups")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             groups = []
@@ -417,6 +469,12 @@ class MongoDBAPI:
             for group in data.get('documents'):
                 groups.append(group.get('name'))
             return groups
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -430,7 +488,7 @@ class MongoDBAPI:
         url = self._url(f"find?db={self.db}"
                         f"&collection=runner&filter={encoded_filter}")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             groups = []
@@ -438,6 +496,12 @@ class MongoDBAPI:
             for group in data.get('documents'):
                 groups.append(group)
             return groups
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -451,11 +515,14 @@ class MongoDBAPI:
         url = self._url(f"find?db={self.db}"
                         f"&collection=runner&filter={encoded_filter}")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
 
             return data.get('documents')[0]
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []
@@ -464,7 +531,7 @@ class MongoDBAPI:
         """Fetch all job names from the MongoDB collection."""
         url = self._url(f"find?db={self.db}&collection=groups")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             counts = {}
@@ -472,6 +539,9 @@ class MongoDBAPI:
             for group in data.get('documents'):
                 counts[group['name']] = group['counts']
             return counts
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return {}
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return {}
@@ -486,11 +556,14 @@ class MongoDBAPI:
                         f"db={self.db}&collection={self.collection}"
                         f"&filter={encoded_filter}")
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=30)
             response.raise_for_status()  # Will raise an error for HTTP errors
             data = response.json()
             # Assuming that data contains a list of job names
             return data
+        except requests.exceptions.Timeout:
+            logger.error(f"Timeout fetching jobs from MongoDB")
+            return []
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching jobs from MongoDB: {e}")
             return []

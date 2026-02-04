@@ -5,7 +5,7 @@ The Jenkins Cloud service exposes a set of endpoints under the `/api/v1/jenkins_
 ## Base URL
 
 ```
-http://10.160.24.88:31224/api/v1/jenkins_cloud
+http://10.160.24.17:31224/api/v1/jenkins_cloud
 ```
 
 ## Execute FTM test runs
