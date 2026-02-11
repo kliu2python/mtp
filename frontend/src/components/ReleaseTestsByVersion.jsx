@@ -42,17 +42,33 @@ const ReleaseTestsByVersion = () => {
             passedTests: 0,
             failedTests: 0,
             skippedTests: 0,
-            tests: []
+            tests: [],
+            // Track unique builds to avoid counting duplicates
+            uniqueBuilds: new Set(),
+            passedBuildsSet: new Set()
           };
         }
 
         const cycleData = cycleMap[key];
-        cycleData.totalBuilds++;
-        cycleData.tests.push(test);
 
-        if (test.status === 'passed') {
-          cycleData.passedBuilds++;
+        // Only count each unique build once
+        const buildIdentifier = test.build_number || `unknown-${Date.now()}-${Math.random()}`;
+        if (!cycleData.uniqueBuilds.has(buildIdentifier)) {
+          cycleData.uniqueBuilds.add(buildIdentifier);
+          cycleData.totalBuilds++;
+
+          // Track passed builds separately to ensure uniqueness
+          if (test.status === 'passed') {
+            cycleData.passedBuildsSet.add(buildIdentifier);
+          }
+        } else {
+          // For duplicate builds, still check if this one is passed (might be a more recent run)
+          if (test.status === 'passed') {
+            cycleData.passedBuildsSet.add(buildIdentifier);
+          }
         }
+
+        cycleData.tests.push(test);
 
         // Calculate counts based on actual test cases if available
         if (test.test_cases && Array.isArray(test.test_cases)) {
@@ -86,6 +102,13 @@ const ReleaseTestsByVersion = () => {
 
       // Convert to array format and calculate pass rates
       const cycleArray = Object.values(cycleMap).map(cycleData => {
+        // Set the actual passed builds count from our unique set
+        cycleData.passedBuilds = cycleData.passedBuildsSet.size;
+
+        // Clean up temporary sets that are not needed in the final data
+        delete cycleData.uniqueBuilds;
+        delete cycleData.passedBuildsSet;
+
         const buildPassRate = cycleData.totalBuilds > 0
           ? Math.round((cycleData.passedBuilds / cycleData.totalBuilds) * 100)
           : 0;

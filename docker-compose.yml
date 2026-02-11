@@ -73,7 +73,7 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_APP_VERSION=1.4.0
+        - VITE_APP_VERSION=1.5.0
     container_name: testplatform-frontend
     ports:
       - "80:80"
