@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import List, Optional
 
 import fitz  # PyMuPDF
-from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, File, HTTPException, UploadFile, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.license import License
 from app.models.fortitoken import FortiToken
+from app.services.warehouse_auth_service import warehouse_auth_service
 # Define directories for license and fortitoken PDFs
 from pathlib import Path
 LICENSE_DIR = Path(__file__).resolve().parent.parent / "uploads" / "licenses"
@@ -29,6 +30,55 @@ FORTITOKEN_DIR.mkdir(parents=True, exist_ok=True)
 import re
 import fitz  # PyMuPDF
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
+
+def verify_warehouse_access(authorization: str = Header(None), db: Session = Depends(get_db)):
+    """
+    Dependency to verify warehouse access using OTP authentication.
+
+    Args:
+        authorization: Authorization header containing email in format "Bearer user@fortinet.com"
+        db: Database session
+
+    Returns:
+        Email address if authenticated
+
+    Raises:
+        HTTPException: If authentication fails
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header is required"
+        )
+
+    # Parse authorization header (expected format: "Bearer user@fortinet.com")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid authorization header format. Expected: Bearer user@fortinet.com"
+        )
+
+    email = authorization[7:].strip()  # Remove "Bearer " prefix
+
+    # Validate email format
+    if not email or "@" not in email:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email format in authorization header"
+        )
+
+    # Check if OTP is verified for this email
+    is_verified = warehouse_auth_service.is_otp_verified(db, email)
+
+    if not is_verified:
+        raise HTTPException(
+            status_code=401,
+            detail="Warehouse access not authorized. Please generate and verify OTP first."
+        )
+
+    return email
 
 def extract_registration_code(pdf_path: str) -> tuple:
     """
@@ -259,7 +309,8 @@ async def get_warehouse_counts(db: Session = Depends(get_db)) -> WarehouseCountR
 @router.post("/random")
 async def get_random_code(
     code_type: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    email: str = Depends(verify_warehouse_access)
 ) -> WarehouseCodeResponse:
     """
     Get a random code from the warehouse with optional type filtering.
@@ -300,6 +351,17 @@ async def get_random_code(
             except Exception as e:
                 logger.error(f"Error moving files for {selected_item.filename}: {e}")
 
+            # Log warehouse activity
+            try:
+                # Extract username from email (part before @)
+                username = email.split('@')[0] if '@' in email else email
+                warehouse_auth_service.log_warehouse_activity(
+                    db, email, username, "fetch", "FortiGate",
+                    selected_item.code[:5] + "..." if selected_item.code else None
+                )
+            except Exception as e:
+                logger.error(f"Error logging warehouse activity: {e}")
+
             return WarehouseCodeResponse(
                 code=selected_item.code,
                 filename=selected_item.filename,
@@ -334,6 +396,17 @@ async def get_random_code(
                     type_file.rename(used_dir / type_file.name)
             except Exception as e:
                 logger.error(f"Error moving files for {selected_item.filename}: {e}")
+
+            # Log warehouse activity
+            try:
+                # Extract username from email (part before @)
+                username = email.split('@')[0] if '@' in email else email
+                warehouse_auth_service.log_warehouse_activity(
+                    db, email, username, "fetch", "FortiAuthenticator",
+                    selected_item.code[:5] + "..." if selected_item.code else None
+                )
+            except Exception as e:
+                logger.error(f"Error logging warehouse activity: {e}")
 
             return WarehouseCodeResponse(
                 code=selected_item.code,
@@ -370,6 +443,17 @@ async def get_random_code(
             except Exception as e:
                 logger.error(f"Error moving files for {selected_item.filename}: {e}")
 
+            # Log warehouse activity
+            try:
+                # Extract username from email (part before @)
+                username = email.split('@')[0] if '@' in email else email
+                warehouse_auth_service.log_warehouse_activity(
+                    db, email, username, "fetch", "FortiIdentity Cloud",
+                    selected_item.code[:5] + "..." if selected_item.code else None
+                )
+            except Exception as e:
+                logger.error(f"Error logging warehouse activity: {e}")
+
             return WarehouseCodeResponse(
                 code=selected_item.code,
                 filename=selected_item.filename,
@@ -398,6 +482,17 @@ async def get_random_code(
                     code_file.rename(used_dir / code_file.name)
             except Exception as e:
                 logger.error(f"Error moving files for {selected_item.filename}: {e}")
+
+            # Log warehouse activity
+            try:
+                # Extract username from email (part before @)
+                username = email.split('@')[0] if '@' in email else email
+                warehouse_auth_service.log_warehouse_activity(
+                    db, email, username, "fetch", "FortiToken",
+                    selected_item.code[:5] + "..." if selected_item.code else None
+                )
+            except Exception as e:
+                logger.error(f"Error logging warehouse activity: {e}")
 
             return WarehouseCodeResponse(
                 code=selected_item.code,
@@ -444,6 +539,17 @@ async def get_random_code(
                 except Exception as e:
                     logger.error(f"Error moving files for {selected_item.filename}: {e}")
 
+                # Log warehouse activity
+                try:
+                    # Extract username from email (part before @)
+                    username = email.split('@')[0] if '@' in email else email
+                    warehouse_auth_service.log_warehouse_activity(
+                        db, email, username, "fetch", selected_item.license_type,
+                        selected_item.code[:5] + "..." if selected_item.code else None
+                    )
+                except Exception as e:
+                    logger.error(f"Error logging warehouse activity: {e}")
+
                 return WarehouseCodeResponse(
                     code=selected_item.code,
                     filename=selected_item.filename,
@@ -469,6 +575,17 @@ async def get_random_code(
                 except Exception as e:
                     logger.error(f"Error moving files for {selected_item.filename}: {e}")
 
+                # Log warehouse activity
+                try:
+                    # Extract username from email (part before @)
+                    username = email.split('@')[0] if '@' in email else email
+                    warehouse_auth_service.log_warehouse_activity(
+                        db, email, username, "fetch", "FortiToken",
+                        selected_item.code[:5] + "..." if selected_item.code else None
+                    )
+                except Exception as e:
+                    logger.error(f"Error logging warehouse activity: {e}")
+
                 return WarehouseCodeResponse(
                     code=selected_item.code,
                     filename=selected_item.filename,
@@ -485,7 +602,8 @@ async def get_random_code(
 @router.post("/upload")
 async def upload_codes(
     files: List[UploadFile] = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    email: str = Depends(verify_warehouse_access)
 ) -> UploadResponse:
     """
     Upload PDF files containing codes of any type.
@@ -693,7 +811,19 @@ async def upload_codes(
     # Generate appropriate message based on what was uploaded
     if any("warning" in file for file in uploaded_files):
         message = "Files processed. Some files contained codes that already exist in the database. Check warnings for details."
-    elif uploaded_files:
+    # Log warehouse activity for uploads
+    try:
+        if uploaded_files:
+            # Extract username from email (part before @)
+            username = email.split('@')[0] if '@' in email else email
+            warehouse_auth_service.log_warehouse_activity(
+                db, email, username, "upload", "Codes",
+                None, len(uploaded_files)
+            )
+    except Exception as e:
+        logger.error(f"Error logging warehouse activity for upload: {e}")
+
+    if uploaded_files:
         message = "Files uploaded successfully"
     else:
         message = "No files were processed"
@@ -706,7 +836,8 @@ async def upload_codes(
 @router.post("/recycle")
 async def recycle_code(
     request: RecycleCodeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    email: str = Depends(verify_warehouse_access)
 ) -> dict:
     """
     Recycle any type of code by adding it back to the available pool.
@@ -766,6 +897,17 @@ async def recycle_code(
             except Exception as e:
                 logger.error(f"Error moving files for recycled code {code}: {e}")
 
+        # Log warehouse activity
+        try:
+            # Extract username from email (part before @)
+            username = email.split('@')[0] if '@' in email else email
+            warehouse_auth_service.log_warehouse_activity(
+                db, email, username, "recycle", "License",
+                code[:5] + "..." if code else None
+            )
+        except Exception as e:
+            logger.error(f"Error logging warehouse activity: {e}")
+
         return {"message": f"License code {code} recycled successfully"}
 
     # Try to find as FortiToken
@@ -811,6 +953,17 @@ async def recycle_code(
             except Exception as e:
                 logger.error(f"Error moving files for recycled code {code}: {e}")
 
+        # Log warehouse activity
+        try:
+            # Extract username from email (part before @)
+            username = email.split('@')[0] if '@' in email else email
+            warehouse_auth_service.log_warehouse_activity(
+                db, email, username, "recycle", "FortiToken",
+                code[:5] + "..." if code else None
+            )
+        except Exception as e:
+            logger.error(f"Error logging warehouse activity: {e}")
+
         return {"message": f"FortiToken code {code} recycled successfully"}
 
     # If not found in database, fall back to file-based approach for backward compatibility
@@ -841,6 +994,17 @@ async def recycle_code(
                         if used_type_path.exists():
                             used_type_path.rename(active_type_path)
 
+                        # Log warehouse activity
+                        try:
+                            # Extract username from email (part before @)
+                            username = email.split('@')[0] if '@' in email else email
+                            warehouse_auth_service.log_warehouse_activity(
+                                db, email, username, "recycle", "License",
+                                code[:5] + "..." if code else None
+                            )
+                        except Exception as e:
+                            logger.error(f"Error logging warehouse activity: {e}")
+
                         return {"message": f"License code {code} recycled successfully"}
                 except:
                     continue
@@ -866,6 +1030,17 @@ async def recycle_code(
                             used_pdf_path.rename(active_pdf_path)
                         if used_code_path.exists():
                             used_code_path.rename(active_code_path)
+
+                        # Log warehouse activity
+                        try:
+                            # Extract username from email (part before @)
+                            username = email.split('@')[0] if '@' in email else email
+                            warehouse_auth_service.log_warehouse_activity(
+                                db, email, username, "recycle", "FortiToken",
+                                code[:5] + "..." if code else None
+                            )
+                        except Exception as e:
+                            logger.error(f"Error logging warehouse activity: {e}")
 
                         return {"message": f"FortiToken code {code} recycled successfully"}
                 except:
