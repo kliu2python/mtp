@@ -122,6 +122,20 @@ def _ensure_optional_columns():
             for statement in licenses_statements:
                 connection.execute(statement)
 
+    # Check warehouse_activities table for user_name column
+    warehouse_columns = {col["name"]
+                         for col in inspector.get_columns("warehouse_activities")}
+
+    warehouse_statements = []
+    if "user_name" not in warehouse_columns:
+        warehouse_statements.append(
+            text("ALTER TABLE warehouse_activities ADD COLUMN user_name VARCHAR NULL"))
+
+    if warehouse_statements:
+        with engine.begin() as connection:
+            for statement in warehouse_statements:
+                connection.execute(statement)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

@@ -206,7 +206,13 @@ def extract_fortitoken_code(pdf_path: str) -> str:
 
 logger = logging.getLogger(__name__)
 
+# Import the warehouse auth router
+from app.api.warehouse_auth import router as warehouse_auth_router
+
 router = APIRouter(tags=["Warehouse"])
+
+# Include the warehouse auth router without any prefix
+router.include_router(warehouse_auth_router, tags=["Warehouse Authentication"])
 
 # Response models
 class WarehouseCountResponse(BaseModel):

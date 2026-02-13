@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Button,
   Card,
@@ -9,6 +9,8 @@ import {
   Upload,
   message,
   Form,
+  Row,
+  Col,
   List,
   Typography
 } from 'antd';
@@ -25,157 +27,53 @@ import { API_URL } from '../constants';
 const { Option } = Select;
 const { Text, Title } = Typography;
 
-// Enhanced authentication with extended session management
-class WarehouseAuthService {
-  constructor() {
-    this.refreshInterval = null;
-    this.sessionTimeout = null;
-    this.SESSION_DURATION = 60 * 60 * 1000 * 24 * 7; // one week session duration
-  }
-
-  // Generate OTP
-  async generateOTP(email, setLoading) {
-    setLoading(true);
-    try {
-      const response = await axios.post(`${API_URL}/api/warehouse/generate-otp`, { email });
-      message.success(response.data.message);
-
-      // Set session timeout
-      this.setSessionTimeout();
-
-      return true;
-    } catch (error) {
-      console.error('OTP Generation error:', error);
-
-      if (error.response?.status === 500) {
-        message.warning('OTP may have been generated but email sending failed. Please contact administrator or try again.');
-        return true;
-      } else {
-        message.error('Failed to generate OTP: ' + (error.response?.data?.detail || error.message));
-        return false;
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Verify OTP
-  async verifyOTP(email, otpCode, setLoading, setIsAuthenticated, setUserEmail) {
-    if (!email || !otpCode) {
-      message.warning('Please enter both email and OTP code');
-      return false;
-    }
-
-    setLoading(true);
-    try {
-      const response = await axios.post(`${API_URL}/api/warehouse/verify-otp`, { email, otp_code: otpCode });
-      if (response.data.success) {
-        message.success(response.data.message);
-        setIsAuthenticated(true);
-        setUserEmail(email);
-        localStorage.setItem('warehouseUserEmail', email);
-        localStorage.setItem('warehouseAuthTimestamp', Date.now().toString());
-
-        // Set session timeout
-        this.setSessionTimeout();
-
-        // Start periodic refresh
-        this.startPeriodicRefresh(setIsAuthenticated);
-
-        return true;
-      }
-    } catch (error) {
-      console.error('OTP Verification error:', error);
-      message.error('Failed to verify OTP: ' + (error.response?.data?.detail || error.message));
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Set session timeout
-  setSessionTimeout() {
-    // Clear existing timeout
-    if (this.sessionTimeout) {
-      clearTimeout(this.sessionTimeout);
-    }
-
-    // Set new timeout for 1 hour
-    this.sessionTimeout = setTimeout(() => {
-      message.info('Your warehouse session has expired for security reasons. Please authenticate again.');
-    }, this.SESSION_DURATION);
-  }
-
-  // Start periodic authentication refresh
-  startPeriodicRefresh(setIsAuthenticated) {
-    // Clear existing interval
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-    }
-
-    // Refresh every 5 minutes to keep session alive
-    this.refreshInterval = setInterval(async () => {
-      const email = localStorage.getItem('warehouseUserEmail');
-      if (email) {
-        try {
-          const response = await axios.get(`${API_URL}/api/warehouse/is-authenticated/${email}`);
-          setIsAuthenticated(response.data.is_authenticated);
-
-          // If not authenticated, stop refreshing
-          if (!response.data.is_authenticated) {
-            this.stopPeriodicRefresh();
-          }
-        } catch (error) {
-          console.error('Periodic auth check failed:', error);
-          // Continue refreshing even if check fails
-        }
-      }
-    }, 5 * 60 * 1000); // 5 minutes
-  }
-
-  // Stop periodic refresh
-  stopPeriodicRefresh() {
-    if (this.refreshInterval) {
-      clearInterval(this.refreshInterval);
-      this.refreshInterval = null;
-    }
-
-    if (this.sessionTimeout) {
-      clearTimeout(this.sessionTimeout);
-      this.sessionTimeout = null;
-    }
-  }
-
-  // Check if session is still valid
-  isSessionValid() {
-    const authTimestamp = localStorage.getItem('warehouseAuthTimestamp');
-    if (!authTimestamp) return false;
-
-    const now = Date.now();
-    const authTime = parseInt(authTimestamp);
-
-    // Session valid for 1 hour
-    return (now - authTime) < this.SESSION_DURATION;
-  }
-
-  // Cleanup on logout
-  cleanup() {
-    this.stopPeriodicRefresh();
-    localStorage.removeItem('warehouseUserEmail');
-    localStorage.removeItem('warehouseAuthTimestamp');
-  }
-}
-
-// Create global auth service instance
-const authService = new WarehouseAuthService();
-
 // Authentication Functions
 const generateOTP = async (email, setLoading) => {
-  return await authService.generateOTP(email, setLoading);
+  setLoading(true);
+  try {
+    const response = await axios.post(`${API_URL}/api/warehouse/generate-otp`, { email });
+    message.success(response.data.message);
+    return true;
+  } catch (error) {
+    console.error('OTP Generation error:', error);
+
+    // Even if email sending fails, the OTP might still be in the database
+    // Show a message that they should check their email or contact admin
+    if (error.response?.status === 500) {
+      message.warning('OTP may have been generated but email sending failed. Please contact administrator or try again.');
+      return true; // Still proceed to verification step
+    } else {
+      message.error('Failed to generate OTP: ' + (error.response?.data?.detail || error.message));
+      return false;
+    }
+  } finally {
+    setLoading(false);
+  }
 };
 
 const verifyOTP = async (email, otpCode, setLoading, setIsAuthenticated, setUserEmail) => {
-  return await authService.verifyOTP(email, otpCode, setLoading, setIsAuthenticated, setUserEmail);
+  if (!email || !otpCode) {
+    message.warning('Please enter both email and OTP code');
+    return false;
+  }
+
+  setLoading(true);
+  try {
+    const response = await axios.post(`${API_URL}/api/warehouse/verify-otp`, { email, otp_code: otpCode });
+    if (response.data.success) {
+      message.success(response.data.message);
+      setIsAuthenticated(true);
+      setUserEmail(email);
+      localStorage.setItem('warehouseUserEmail', email);
+      return true;
+    }
+  } catch (error) {
+    console.error('OTP Verification error:', error);
+    message.error('Failed to verify OTP: ' + (error.response?.data?.detail || error.message));
+    return false;
+  } finally {
+    setLoading(false);
+  }
 };
 
 const checkAuthenticationStatus = async (email, setIsAuthenticated) => {
@@ -184,11 +82,6 @@ const checkAuthenticationStatus = async (email, setIsAuthenticated) => {
   try {
     const response = await axios.get(`${API_URL}/api/warehouse/is-authenticated/${email}`);
     setIsAuthenticated(response.data.is_authenticated);
-
-    // If authenticated, start periodic refresh
-    if (response.data.is_authenticated) {
-      authService.startPeriodicRefresh(setIsAuthenticated);
-    }
   } catch (error) {
     console.error('Authentication check error:', error);
     setIsAuthenticated(false);
@@ -274,6 +167,7 @@ const handleUploadCodes = async (fileList, setUploadModalVisible, setFileList, s
 
   const formData = new FormData();
   fileList.forEach(file => {
+    // Use the actual file object
     if (file.originFileObj) {
       formData.append('files', file.originFileObj);
     } else {
@@ -292,6 +186,7 @@ const handleUploadCodes = async (fileList, setUploadModalVisible, setFileList, s
     message.success(`Successfully uploaded ${fileList.length} files`);
     setUploadModalVisible(false);
     setFileList([]);
+    // Refresh count after upload
     fetchWarehouseCounts(setCounts);
   } catch (error) {
     console.error('Upload error:', error);
@@ -301,7 +196,7 @@ const handleUploadCodes = async (fileList, setUploadModalVisible, setFileList, s
   }
 };
 
-const EnhancedWarehouse = () => {
+const UnifiedWarehouse = () => {
   const [loading, setLoading] = useState(false);
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [fileList, setFileList] = useState([]);
@@ -333,18 +228,13 @@ const EnhancedWarehouse = () => {
     fetchWarehouseCounts(setCounts);
     fetchWarehouseActivities(setActivities);
 
-    // Check for saved user email and session validity
+    // Check for saved user email
     const savedEmail = localStorage.getItem('warehouseUserEmail');
-    if (savedEmail && authService.isSessionValid()) {
+    if (savedEmail) {
       setUserEmail(savedEmail);
       setOtpEmail(savedEmail);
       checkAuthenticationStatus(savedEmail, setIsAuthenticated);
     }
-
-    // Cleanup function
-    return () => {
-      authService.stopPeriodicRefresh();
-    };
   }, []);
 
   const uploadProps = {
@@ -352,13 +242,15 @@ const EnhancedWarehouse = () => {
     fileList: fileList,
     accept: '.pdf',
     beforeUpload: (file) => {
+      // Only allow PDF files
       if (file.type !== 'application/pdf' && !file.name?.endsWith('.pdf')) {
         message.error('You can only upload PDF files!');
         return false;
       }
-      return true;
+      return true; // Return true to allow upload
     },
     onChange: ({ fileList: newFileList }) => {
+      // Filter to only include PDF files
       const pdfFiles = newFileList.filter(file =>
         file.status !== 'removed' && (
           file.type === 'application/pdf' ||
@@ -379,6 +271,7 @@ const EnhancedWarehouse = () => {
   const handleLogin = async () => {
     const success = await generateOTP(otpEmail, setOtpLoading);
     if (success) {
+      // OTP was generated successfully, show verification modal
       setShowOtpModal(true);
     }
   };
@@ -386,6 +279,7 @@ const EnhancedWarehouse = () => {
   const handleVerify = async () => {
     const success = await verifyOTP(otpEmail, otpCode, setOtpLoading, setIsAuthenticated, setUserEmail);
     if (success) {
+      // Close the OTP modal and refresh activities after successful authentication
       setShowOtpModal(false);
       fetchWarehouseActivities(setActivities);
     }
@@ -396,7 +290,7 @@ const EnhancedWarehouse = () => {
     setUserEmail('');
     setOtpEmail('');
     setOtpCode('');
-    authService.cleanup();
+    localStorage.removeItem('warehouseUserEmail');
   };
 
   // Main warehouse view - accessible to everyone
@@ -437,6 +331,7 @@ const EnhancedWarehouse = () => {
         </div>
 
         <div style={{ textAlign: 'center', padding: '0 0 15px' }}>
+
           <div style={{ marginBottom: '10px' }}>
             <h3 style={{ marginTop: 0, marginBottom: '8px', textAlign: 'center', fontSize: '16px' }}>Select License Type</h3>
             <div style={{
@@ -620,7 +515,7 @@ const EnhancedWarehouse = () => {
         </div>
         <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
           <List
-            dataSource={activities.slice(0, 20)}
+            dataSource={activities.slice(0, 20)} // Show last 20 activities
             renderItem={(activity) => (
               <List.Item style={{ padding: '8px 0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '12px' }}>
@@ -734,4 +629,4 @@ const EnhancedWarehouse = () => {
   );
 };
 
-export default EnhancedWarehouse;
+export default UnifiedWarehouse;
