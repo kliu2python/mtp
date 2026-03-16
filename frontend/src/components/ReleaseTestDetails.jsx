@@ -23,6 +23,17 @@ const ReleaseTestDetails = () => {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
 
+  // Get project from URL query params
+  const urlParams = new URLSearchParams(window.location.search);
+  const projectParam = urlParams.get('project');
+
+  // Project mapping for display
+  const projectMap = {
+    'ftm': 'FTM',
+    'fortiexplorer': 'FortiExplorer GO',
+    'fortiedr': 'FortiEDR Mobile'
+  };
+
   useEffect(() => {
     if (platform) {
       fetchTestsByPlatformAndVersion();
@@ -36,6 +47,13 @@ const ReleaseTestDetails = () => {
       const params = { platform: platform };
       if (version) {
         params.version = version;
+      }
+
+      // Also filter by project if it's in the URL query params
+      const urlParams = new URLSearchParams(window.location.search);
+      const projectParam = urlParams.get('project');
+      if (projectParam) {
+        params.project = projectParam;
       }
 
       console.log('=== DEBUG: Fetching release tests with params ===', params);
@@ -78,7 +96,8 @@ const ReleaseTestDetails = () => {
     form.resetFields();
     form.setFieldsValue({
       platform: platform,
-      version: version
+      version: version,
+      project: projectParam || 'ftm'
     });
     setModalMode('create');
     setEditingTest(null);
@@ -126,6 +145,7 @@ const ReleaseTestDetails = () => {
         build_number: test.build_number,
         platform: test.platform,
         version: test.version,
+        project: test.project || 'ftm',
         test_suite: test.test_suite,
         test_type: test.test_type,
         status: test.status,
@@ -160,6 +180,7 @@ const ReleaseTestDetails = () => {
         build_number: test.build_number,
         platform: test.platform,
         version: test.version,
+        project: test.project || 'ftm',
         test_suite: test.test_suite,
         test_type: test.test_type,
         status: test.status,
@@ -231,6 +252,7 @@ const ReleaseTestDetails = () => {
         build_number: test.build_number,
         platform: test.platform,
         version: test.version,
+        project: test.project || 'ftm',
         test_suite: test.test_suite,
         test_type: test.test_type,
         status: test.status,
@@ -265,6 +287,7 @@ const ReleaseTestDetails = () => {
         build_number: test.build_number,
         platform: test.platform,
         version: test.version,
+        project: test.project || 'ftm',
         test_suite: test.test_suite,
         test_type: test.test_type,
         status: test.status,
@@ -316,8 +339,34 @@ const ReleaseTestDetails = () => {
         // For create mode, ensure platform and version are set
         values.platform = values.platform || platform;
         values.version = values.version || version;
-        await axios.post(`${API_URL}/api/release-tests`, values);
-        message.success('Release test created successfully');
+
+        // Handle multiple copies creation
+        const copyCount = values.copy_count || 1;
+        // Remove copy_count from values as it's not needed by the backend
+        const { copy_count, ...apiValues } = values;
+        let successCount = 0;
+
+        for (let i = 0; i < copyCount; i++) {
+          try {
+            await axios.post(`${API_URL}/api/release-tests`, apiValues);
+            successCount++;
+          } catch (error) {
+            console.error(`Failed to create copy ${i + 1}:`, error);
+            if (copyCount === 1) {
+              throw error; // Re-throw for single copy to show error message
+            }
+          }
+        }
+
+        if (successCount > 0) {
+          if (successCount === copyCount) {
+            message.success(`Successfully created ${successCount} release test(s)`);
+          } else {
+            message.warning(`Created ${successCount} of ${copyCount} release tests. Some failed.`);
+          }
+        } else {
+          throw new Error('Failed to create any release tests');
+        }
       }
 
       setModalOpen(false);
@@ -554,6 +603,19 @@ const ReleaseTestDetails = () => {
       },
     },
     {
+      title: 'Test Type',
+      dataIndex: 'test_type',
+      key: 'test_type',
+      render: (testType) => {
+        const testTypeMap = {
+          'smoke': 'Smoke',
+          'full': 'Full',
+          'critical': 'Critical Path'
+        };
+        return testTypeMap[testType] || testType || 'N/A';
+      },
+    },
+    {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
@@ -588,7 +650,7 @@ const ReleaseTestDetails = () => {
   return (
     <div>
       <Card
-        title={`Release Tests${platform ? ` - ${platform.toUpperCase()}` : ''}${version ? ` - Version ${version}` : ''}`}
+        title={`Release Tests${projectParam ? ` - ${projectMap[projectParam] || projectParam.toUpperCase()}` : ''}${platform ? ` - ${platform.toUpperCase()}` : ''}${version ? ` - Version ${version}` : ''}`}
         extra={
           <Space>
             <Button
@@ -699,6 +761,22 @@ const ReleaseTestDetails = () => {
             </Col>
             <Col span={12}>
               <Form.Item
+                label="Project"
+                name="project"
+                rules={[{ required: true, message: 'Please select project' }]}
+              >
+                <Select placeholder="Select project" disabled>
+                  <Select.Option value="ftm">FTM</Select.Option>
+                  <Select.Option value="fortiexplorer">FortiExplorer GO</Select.Option>
+                  <Select.Option value="fortiedr">FortiEDR Mobile</Select.Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
                 label="Test Suite"
                 name="test_suite"
                 rules={[{ required: true, message: 'Please enter test suite' }]}
@@ -711,9 +789,6 @@ const ReleaseTestDetails = () => {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-
-          <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 label="Test Type"
@@ -727,6 +802,8 @@ const ReleaseTestDetails = () => {
                 </Select>
               </Form.Item>
             </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 label="Status"
@@ -742,132 +819,148 @@ const ReleaseTestDetails = () => {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-        </Form>
-        {(modalMode === 'view' || modalMode === 'edit') && (
-          <>
-            {(() => {
-              const currentTest = modalMode === 'view' ? viewingTest : editingTest;
-
-              if (currentTest?.test_cases && currentTest.test_cases.length > 0) {
-                return (
-                  <div style={{ marginTop: 20 }}>
-                    <h3>Test Cases</h3>
-                    <Table
-                      dataSource={currentTest.test_cases.map((tc, index) => ({ ...tc, key: index }))}
-                      columns={[
-                        {
-                          title: 'Name',
-                          dataIndex: 'name',
-                          key: 'name',
-                          render: (_, record) => {
-                            console.log('Rendering test case record:', record);
-                            // Handle different data formats
-                            // For Allure CSV format with test_method
-                            if (record.test_method && record.name) {
-                              return `${record.name} [${record.test_method}]`;
-                            }
-                            // For Allure CSV format with full name in 'Name' column
-                            else if (record.name && !record.classname) {
-                              return record.name;
-                            }
-                            // For traditional format with classname
-                            else if (record.classname) {
-                              return `${record.classname}.${record.name}`;
-                            }
-                            // Fallback
-                            return record.name || 'Unknown Test';
-                          }
-                        },
-                        {
-                          title: 'Status',
-                          dataIndex: 'status',
-                          key: 'status',
-                          render: (status) => {
-                            let color = 'default';
-                            const upperStatus = typeof status === 'string' ? status.toUpperCase() : status || 'UNKNOWN';
-                            if (upperStatus === 'PASSED') color = 'green';
-                            if (upperStatus === 'FAILED') color = 'red';
-                            if (upperStatus === 'SKIPPED') color = 'orange';
-                            if (upperStatus === 'BROKEN') color = 'volcano';
-                            return <Tag color={color}>{upperStatus}</Tag>;
-                          }
-                        },
-                        {
-                          title: 'Duration',
-                          dataIndex: 'duration_ms',
-                          key: 'duration_ms',
-                          render: (_, record) => {
-                            // Handle both duration_ms (CSV) and time (XML) formats
-                            if (record.duration_ms) {
-                              return `${record.duration_ms} ms`;
-                            } else if (record.time) {
-                              return `${record.time} s`;
-                            }
-                            return 'N/A';
-                          }
-                        }
-                      ]}
-                      pagination={{ pageSize: 4 }}
-                      size="small"
-                    />
-                  </div>
-                );
-              }
-              return null;
-            })()}
-
-            {modalMode === 'view' && viewingTest?.mantis_issues && viewingTest.mantis_issues.length > 0 && (
-              <div style={{ marginTop: 20 }}>
-                <h3>Mantis Issues</h3>
-                <Table
-                  dataSource={viewingTest.mantis_issues.map((issue, index) => ({ ...issue, key: index }))}
-                  columns={[
-                    {
-                      title: 'ID',
-                      dataIndex: 'issue_id',
-                      key: 'issue_id',
-                      render: (text, record) => (
-                        <a href={record.url} target="_blank" rel="noopener noreferrer">
-                          {text}
-                        </a>
-                      ),
-                    },
-                    {
-                      title: 'Summary',
-                      dataIndex: 'summary',
-                      key: 'summary',
-                    },
-                    {
-                      title: 'Status',
-                      dataIndex: 'status',
-                      key: 'status',
-                      render: (status) => {
-                        let color = 'default';
-                        if (status === 'resolved') color = 'green';
-                        if (status === 'feedback') color = 'orange';
-                        if (status === 'assigned') color = 'blue';
-                        return <Tag color={color}>{status}</Tag>;
-                      }
-                    },
-                    {
-                      title: 'Priority',
-                      dataIndex: 'priority',
-                      key: 'priority',
-                    },
-                    {
-                      title: 'Severity',
-                      dataIndex: 'severity',
-                      key: 'severity',
-                    }
-                  ]}
-                  pagination={{ pageSize: 5 }}
-                  size="small"
-                />
-              </div>
+            {modalMode === 'create' && (
+              <Col span={12}>
+                <Form.Item
+                  label="Number of Copies"
+                  name="copy_count"
+                  initialValue={1}
+                >
+                  <Select>
+                    <Select.Option value={1}>1</Select.Option>
+                    <Select.Option value={2}>2</Select.Option>
+                    <Select.Option value={3}>3</Select.Option>
+                    <Select.Option value={4}>4</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
             )}
-          </>
-        )}
+          </Row>
+          {(modalMode === 'view' || modalMode === 'edit') && (
+            <>
+              {(() => {
+                const currentTest = modalMode === 'view' ? viewingTest : editingTest;
+
+                if (currentTest?.test_cases && currentTest.test_cases.length > 0) {
+                  return (
+                    <div style={{ marginTop: 20 }}>
+                      <h3>Test Cases</h3>
+                      <Table
+                        dataSource={currentTest.test_cases.map((tc, index) => ({ ...tc, key: index }))}
+                        columns={[
+                          {
+                            title: 'Name',
+                            dataIndex: 'name',
+                            key: 'name',
+                            render: (_, record) => {
+                              console.log('Rendering test case record:', record);
+                              // Handle different data formats
+                              // For Allure CSV format with test_method
+                              if (record.test_method && record.name) {
+                                return `${record.name} [${record.test_method}]`;
+                              }
+                              // For Allure CSV format with full name in 'Name' column
+                              else if (record.name && !record.classname) {
+                                return record.name;
+                              }
+                              // For traditional format with classname
+                              else if (record.classname) {
+                                return `${record.classname}.${record.name}`;
+                              }
+                              // Fallback
+                              return record.name || 'Unknown Test';
+                            }
+                          },
+                          {
+                            title: 'Status',
+                            dataIndex: 'status',
+                            key: 'status',
+                            render: (status) => {
+                              let color = 'default';
+                              const upperStatus = typeof status === 'string' ? status.toUpperCase() : status || 'UNKNOWN';
+                              if (upperStatus === 'PASSED') color = 'green';
+                              if (upperStatus === 'FAILED') color = 'red';
+                              if (upperStatus === 'SKIPPED') color = 'orange';
+                              if (upperStatus === 'BROKEN') color = 'volcano';
+                              return <Tag color={color}>{upperStatus}</Tag>;
+                            }
+                          },
+                          {
+                            title: 'Duration',
+                            dataIndex: 'duration_ms',
+                            key: 'duration_ms',
+                            render: (_, record) => {
+                              // Handle both duration_ms (CSV) and time (XML) formats
+                              if (record.duration_ms) {
+                                return `${record.duration_ms} ms`;
+                              } else if (record.time) {
+                                return `${record.time} s`;
+                              }
+                              return 'N/A';
+                            }
+                          }
+                        ]}
+                        pagination={{ pageSize: 4 }}
+                        size="small"
+                      />
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {modalMode === 'view' && viewingTest?.mantis_issues && viewingTest.mantis_issues.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <h3>Mantis Issues</h3>
+                  <Table
+                    dataSource={viewingTest.mantis_issues.map((issue, index) => ({ ...issue, key: index }))}
+                    columns={[
+                      {
+                        title: 'ID',
+                        dataIndex: 'issue_id',
+                        key: 'issue_id',
+                        render: (text, record) => (
+                          <a href={record.url} target="_blank" rel="noopener noreferrer">
+                            {text}
+                          </a>
+                        ),
+                      },
+                      {
+                        title: 'Summary',
+                        dataIndex: 'summary',
+                        key: 'summary',
+                      },
+                      {
+                        title: 'Status',
+                        dataIndex: 'status',
+                        key: 'status',
+                        render: (status) => {
+                          let color = 'default';
+                          if (status === 'resolved') color = 'green';
+                          if (status === 'feedback') color = 'orange';
+                          if (status === 'assigned') color = 'blue';
+                          return <Tag color={color}>{status}</Tag>;
+                        }
+                      },
+                      {
+                        title: 'Priority',
+                        dataIndex: 'priority',
+                        key: 'priority',
+                      },
+                      {
+                        title: 'Severity',
+                        dataIndex: 'severity',
+                        key: 'severity',
+                      }
+                    ]}
+                    pagination={{ pageSize: 5 }}
+                    size="small"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </Form>
       </Modal>
     </div>
   );

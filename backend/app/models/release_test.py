@@ -30,6 +30,9 @@ class ReleaseCandidateTest(Base):
     platform = Column(String, nullable=False)  # android, ios
     version = Column(String, nullable=False)  # e.g., "1.2.3"
 
+    # Project information
+    project = Column(String, nullable=False, default="ftm")  # ftm, fortiexplorer, fortiedr
+
     # Test information
     # functional, integration, regression
     test_suite = Column(String, nullable=False)
@@ -71,6 +74,7 @@ class ReleaseCandidateTest(Base):
             "build_number": self.build_number,
             "platform": self.platform,
             "version": self.version,
+            "project": self.project,
             "test_suite": self.test_suite,
             "test_type": self.test_type,
             "status": self.status.value if self.status else None,

@@ -24,18 +24,20 @@ const ReleaseTestsByVersion = () => {
       const response = await axios.get(`${API_URL}/api/release-tests`);
       const tests = response.data;
 
-      // Group tests by platform + version combination
+      // Group tests by platform + version + project combination
       const cycleMap = {};
       tests.forEach(test => {
         const platform = test.platform || 'Unknown';
         const version = test.version || 'Unknown';
-        const key = `${platform}-${version}`;
+        const project = test.project || 'ftm';
+        const key = `${platform}-${version}-${project}`;
 
         if (!cycleMap[key]) {
           cycleMap[key] = {
             key: key,
             platform: platform,
             version: version,
+            project: project,
             totalBuilds: 0,
             passedBuilds: 0,
             totalTests: 0,
@@ -149,7 +151,8 @@ const ReleaseTestsByVersion = () => {
     form.setFieldsValue({
       build_number: '',
       test_suite: 'regression',
-      test_type: 'critical'
+      test_type: 'critical',
+      project: 'ftm'
     });
     setModalOpen(true);
   };
@@ -205,6 +208,25 @@ const ReleaseTestsByVersion = () => {
       sorter: (a, b) => a.version.localeCompare(b.version),
     },
     {
+      title: 'Project',
+      dataIndex: 'project',
+      key: 'project',
+      render: (project) => {
+        const projectMap = {
+          'ftm': 'FTM',
+          'fortiexplorer': 'FortiExplorer GO',
+          'fortiedr': 'FortiEDR Mobile'
+        };
+        return projectMap[project] || project || 'N/A';
+      },
+      filters: [
+        { text: 'FTM', value: 'ftm' },
+        { text: 'FortiExplorer GO', value: 'fortiexplorer' },
+        { text: 'FortiEDR Mobile', value: 'fortiedr' }
+      ],
+      onFilter: (value, record) => record.project === value,
+    },
+    {
       title: 'Total Builds',
       dataIndex: 'totalBuilds',
       key: 'totalBuilds',
@@ -255,7 +277,7 @@ const ReleaseTestsByVersion = () => {
         <Button
           type="primary"
           size="small"
-          onClick={() => navigate(`/release-tests/details/${record.platform}/${record.version}`)}
+          onClick={() => navigate(`/release-tests/details/${record.platform}/${record.version}?project=${record.project}`)}
         >
           View Details
         </Button>
@@ -330,6 +352,22 @@ const ReleaseTestsByVersion = () => {
                 rules={[{ required: true, message: 'Please enter version' }]}
               >
                 <Input placeholder="e.g., 1.2.3" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="Project"
+                name="project"
+                rules={[{ required: true, message: 'Please select project' }]}
+              >
+                <Select placeholder="Select project">
+                  <Select.Option value="ftm">FTM</Select.Option>
+                  <Select.Option value="fortiexplorer">FortiExplorer GO</Select.Option>
+                  <Select.Option value="fortiedr">FortiEDR Mobile</Select.Option>
+                </Select>
               </Form.Item>
             </Col>
           </Row>

@@ -37,6 +37,7 @@ const Dashboard = () => {
   // Filter states
   const [versionFilter, setVersionFilter] = useState(null);
   const [platformFilter, setPlatformFilter] = useState(null);
+  const [projectFilter, setProjectFilter] = useState(null);
 
   // Refs for chart components
   const passRateChartRef = useRef(null);
@@ -312,6 +313,11 @@ const Dashboard = () => {
     return [...new Set(platforms)].sort();
   };
 
+  const getUniqueProjects = () => {
+    const projects = releaseTests.map(test => test.project).filter(Boolean);
+    return [...new Set(projects)].sort();
+  };
+
   // Filter release tests based on active filters
   const getFilteredReleaseTests = () => {
     return releaseTests.filter(test => {
@@ -319,6 +325,9 @@ const Dashboard = () => {
         return false;
       }
       if (platformFilter && test.platform !== platformFilter) {
+        return false;
+      }
+      if (projectFilter && test.project !== projectFilter) {
         return false;
       }
       return true;
@@ -329,6 +338,7 @@ const Dashboard = () => {
   const resetFilters = () => {
     setVersionFilter(null);
     setPlatformFilter(null);
+    setProjectFilter(null);
   };
 
   // Chart export handlers
@@ -631,7 +641,21 @@ const Dashboard = () => {
                   ))}
                 </Select>
               </Col>
-              {(versionFilter || platformFilter) && (
+              <Col>
+                <Select
+                  style={{ width: 150 }}
+                  placeholder="Project"
+                  value={projectFilter}
+                  onChange={setProjectFilter}
+                  allowClear
+                  onClear={() => setProjectFilter(null)}
+                >
+                  <Select.Option value="ftm">FTM</Select.Option>
+                  <Select.Option value="fortiexplorer">FortiExplorer GO</Select.Option>
+                  <Select.Option value="fortiedr">FortiEDR Mobile</Select.Option>
+                </Select>
+              </Col>
+              {(versionFilter || platformFilter || projectFilter) && (
                 <Col>
                   <Button onClick={resetFilters}>
                     Clear Filters

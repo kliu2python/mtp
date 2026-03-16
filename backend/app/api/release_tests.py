@@ -22,6 +22,7 @@ class ReleaseTestCreate(BaseModel):
     build_number: str
     platform: str
     version: str
+    project: str = "ftm"
     test_suite: str
     test_type: str
     status: Optional[str] = None
@@ -44,6 +45,7 @@ class ReleaseTestUpdate(BaseModel):
     build_number: Optional[str] = None
     platform: Optional[str] = None
     version: Optional[str] = None
+    project: Optional[str] = None
     test_suite: Optional[str] = None
     test_type: Optional[str] = None
     status: Optional[str] = None
@@ -67,6 +69,7 @@ class ReleaseTestResponse(BaseModel):
     build_number: str
     platform: str
     version: str
+    project: str
     test_suite: str
     test_type: str
     status: str
@@ -92,6 +95,7 @@ async def list_release_tests(
     status: Optional[str] = None,
     build_number: Optional[str] = None,
     version: Optional[str] = None,
+    project: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -111,6 +115,8 @@ async def list_release_tests(
                 ReleaseCandidateTest.build_number == build_number)
         if version:
             query = query.filter(ReleaseCandidateTest.version == version)
+        if project:
+            query = query.filter(ReleaseCandidateTest.project == project)
 
         # Order by build number for consistent sorting
         query = query.order_by(ReleaseCandidateTest.build_number)
@@ -193,6 +199,7 @@ async def create_release_test(test_data: ReleaseTestCreate, db: Session = Depend
         build_number=test_data.build_number,
         platform=test_data.platform,
         version=test_data.version,
+        project=test_data.project,
         test_suite=test_data.test_suite,
         test_type=test_data.test_type,
         status=test_data.status if test_data.status else TestStatus.PENDING,
