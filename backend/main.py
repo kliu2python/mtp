@@ -28,6 +28,7 @@ from app.api import (
     cloud,
     release_tests,
     test_templates,
+    admin_config_api,
 )
 from app.api.warehouse import router as warehouse_router
 from app.services.websocket_manager import manager
@@ -40,6 +41,7 @@ from app.models.cloud_service import CloudService
 from app.models.release_test import ReleaseCandidateTest
 from app.models.license import License
 from app.models.fortitoken import FortiToken
+from app.models.admin_config import AdminConfig
 
 
 def _ensure_optional_columns():
@@ -205,6 +207,7 @@ app.include_router(release_tests.router, prefix="/api", tags=["Release Tests"])
 app.include_router(test_templates.router, prefix="/api",
                    tags=["Test Templates"])
 app.include_router(warehouse_router, prefix="/api/warehouse", tags=["Warehouse"])
+app.include_router(admin_config_api.router, prefix="/api", tags=["Admin Config"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

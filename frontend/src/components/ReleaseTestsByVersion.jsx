@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Form, Input, Modal, Row, Select, Space, Table, Tag, message } from 'antd';
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Card, Col, Form, Input, Modal, Popconfirm, Row, Select, Space, Table, Tag, message } from 'antd';
+import { PlusOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import axios from 'axios';
 import { API_URL } from '../constants';
 import { useNavigate } from 'react-router-dom';
 
+const { Option } = Select;
+
 const ReleaseTestsByVersion = () => {
   const [testCycles, setTestCycles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
@@ -20,187 +22,86 @@ const ReleaseTestsByVersion = () => {
   const fetchTestCycles = async () => {
     try {
       setLoading(true);
-      // Fetch all tests to group by platform + version combinations
-      const response = await axios.get(`${API_URL}/api/release-tests`);
-      const tests = response.data;
+      const response = await axios.get(`${API_URL}/api/release-cycles`);
+      const cycles = response.data;
 
-      // Group tests by platform + version + project combination
-      const cycleMap = {};
-      tests.forEach(test => {
-        const platform = test.platform || 'Unknown';
-        const version = test.version || 'Unknown';
-        const project = test.project || 'ftm';
-        const key = `${platform}-${version}-${project}`;
+      // Fetch test counts for each cycle
+      const cyclesWithCounts = await Promise.all(cycles.map(async (cycle) => {
+        try {
+          const testsResponse = await axios.get(`${API_URL}/api/release-cycles/${cycle.id}/tests`);
+          const tests = testsResponse.data;
+          const totalTests = tests.length;
+          const passedTests = tests.filter(t => t.status === 'passed').length;
+          const failedTests = tests.filter(t => t.status === 'failed' || t.status === 'error').length;
 
-        if (!cycleMap[key]) {
-          cycleMap[key] = {
-            key: key,
-            platform: platform,
-            version: version,
-            project: project,
-            totalBuilds: 0,
-            passedBuilds: 0,
-            totalTests: 0,
-            passedTests: 0,
-            failedTests: 0,
-            skippedTests: 0,
-            tests: [],
-            // Track unique builds to avoid counting duplicates
-            uniqueBuilds: new Set(),
-            passedBuildsSet: new Set()
+          return {
+            ...cycle,
+            totalTests,
+            passedTests,
+            failedTests,
+            passRate: totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0
           };
+        } catch (error) {
+          return { ...cycle, totalTests: 0, passedTests: 0, failedTests: 0, passRate: 0 };
         }
+      }));
 
-        const cycleData = cycleMap[key];
-
-        // Only count each unique build once
-        const buildIdentifier = test.build_number || `unknown-${Date.now()}-${Math.random()}`;
-        if (!cycleData.uniqueBuilds.has(buildIdentifier)) {
-          cycleData.uniqueBuilds.add(buildIdentifier);
-          cycleData.totalBuilds++;
-
-          // Track passed builds separately to ensure uniqueness
-          if (test.status === 'passed') {
-            cycleData.passedBuildsSet.add(buildIdentifier);
-          }
-        } else {
-          // For duplicate builds, still check if this one is passed (might be a more recent run)
-          if (test.status === 'passed') {
-            cycleData.passedBuildsSet.add(buildIdentifier);
-          }
-        }
-
-        cycleData.tests.push(test);
-
-        // Calculate counts based on actual test cases if available
-        if (test.test_cases && Array.isArray(test.test_cases)) {
-          const passedCount = test.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            return status === 'PASSED';
-          }).length;
-
-          const failedCount = test.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            return status === 'FAILED' || status === 'BROKEN';
-          }).length;
-
-          const skippedCount = test.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            return status === 'SKIPPED';
-          }).length;
-
-          cycleData.totalTests += passedCount + failedCount + skippedCount;
-          cycleData.passedTests += passedCount;
-          cycleData.failedTests += failedCount;
-          cycleData.skippedTests += skippedCount;
-        } else {
-          // Fallback to original counter fields if test cases aren't available
-          cycleData.totalTests += (test.passed_count || 0) + (test.failed_count || 0) + (test.skipped_count || 0);
-          cycleData.passedTests += test.passed_count || 0;
-          cycleData.failedTests += test.failed_count || 0;
-          cycleData.skippedTests += test.skipped_count || 0;
-        }
-      });
-
-      // Convert to array format and calculate pass rates
-      const cycleArray = Object.values(cycleMap).map(cycleData => {
-        // Set the actual passed builds count from our unique set
-        cycleData.passedBuilds = cycleData.passedBuildsSet.size;
-
-        // Clean up temporary sets that are not needed in the final data
-        delete cycleData.uniqueBuilds;
-        delete cycleData.passedBuildsSet;
-
-        const buildPassRate = cycleData.totalBuilds > 0
-          ? Math.round((cycleData.passedBuilds / cycleData.totalBuilds) * 100)
-          : 0;
-
-        const testPassRate = cycleData.totalTests > 0
-          ? Math.round((cycleData.passedTests / cycleData.totalTests) * 100)
-          : 0;
-
-        return {
-          ...cycleData,
-          buildPassRate,
-          testPassRate
-        };
-      });
-
-      setTestCycles(cycleArray);
-      setLoading(false);
+      setTestCycles(cyclesWithCounts);
     } catch (error) {
       message.error('Failed to fetch release test cycles');
+    } finally {
       setLoading(false);
     }
   };
 
   const refreshTestCycles = async () => {
-    try {
-      setLoading(true);
-      await fetchTestCycles();
-      message.success('Release test cycles refreshed');
-    } catch (error) {
-      message.error('Failed to refresh release test cycles');
-      setLoading(false);
-    }
+    await fetchTestCycles();
+    message.success('Release test cycles refreshed');
   };
 
-  const handleCreateTest = () => {
-    form.resetFields();
-    // Set default values for required fields that aren't shown in the simplified form
-    form.setFieldsValue({
-      build_number: '',
-      test_suite: 'regression',
-      test_type: 'critical',
-      project: 'ftm'
-    });
-    setModalOpen(true);
-  };
-
-  const handleSaveTest = async () => {
+  const handleCreateCycle = async (values) => {
     try {
-      const values = await form.validateFields();
-
-      setSaving(true);
-
-      await axios.post(`${API_URL}/api/release-tests`, values);
-      message.success('Release test created successfully');
-
-      setModalOpen(false);
+      setCreating(true);
+      await axios.post(`${API_URL}/api/release-cycles`, values);
+      message.success('Release test cycle created successfully');
+      setCreateModalVisible(false);
       form.resetFields();
       fetchTestCycles();
     } catch (error) {
-      console.error('Failed to create release test:', error);
-      message.error('Failed to create release test: ' + (error.response?.data?.detail || error.message));
+      console.error('Failed to create release test cycle:', error);
+      message.error('Failed to create release test cycle: ' + (error.response?.data?.detail || error.message));
     } finally {
-      setSaving(false);
+      setCreating(false);
     }
   };
 
-  const getPlatformColor = (platform) => {
-    switch (platform) {
-      case 'android': return 'green';
-      case 'ios': return 'blue';
+  const showCreateModal = () => {
+    form.resetFields();
+    setCreateModalVisible(true);
+  };
+
+  const handleDeleteCycle = async (record) => {
+    try {
+      await axios.delete(`${API_URL}/api/release-cycles/${record.id}`);
+      message.success('Release test cycle deleted successfully');
+      fetchTestCycles();
+    } catch (error) {
+      console.error('Failed to delete release test cycle:', error);
+      message.error('Failed to delete release test cycle');
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'pending': return 'default';
+      case 'running': return 'blue';
+      case 'completed': return 'green';
+      case 'failed': return 'red';
       default: return 'default';
     }
   };
 
   const columns = [
-    {
-      title: 'Platform',
-      dataIndex: 'platform',
-      key: 'platform',
-      render: (platform) => {
-        const color = getPlatformColor(platform);
-        return <Tag color={color}>{platform?.toUpperCase()}</Tag>;
-      },
-      sorter: (a, b) => a.platform.localeCompare(b.platform),
-      filters: [
-        { text: 'Android', value: 'android' },
-        { text: 'iOS', value: 'ios' }
-      ],
-      onFilter: (value, record) => record.platform === value,
-    },
     {
       title: 'Version',
       dataIndex: 'version',
@@ -219,31 +120,21 @@ const ReleaseTestsByVersion = () => {
         };
         return projectMap[project] || project || 'N/A';
       },
-      filters: [
-        { text: 'FTM', value: 'ftm' },
-        { text: 'FortiExplorer GO', value: 'fortiexplorer' },
-        { text: 'FortiEDR Mobile', value: 'fortiedr' }
-      ],
-      onFilter: (value, record) => record.project === value,
     },
     {
-      title: 'Total Builds',
-      dataIndex: 'totalBuilds',
-      key: 'totalBuilds',
-      sorter: (a, b) => a.totalBuilds - b.totalBuilds,
+      title: 'Platform',
+      dataIndex: 'platform',
+      key: 'platform',
+      render: (platform) => {
+        const color = platform === 'android' ? 'green' : platform === 'ios' ? 'blue' : 'default';
+        return <Tag color={color}>{platform?.toUpperCase()}</Tag>;
+      },
     },
     {
-      title: 'Passed Builds',
-      dataIndex: 'passedBuilds',
-      key: 'passedBuilds',
-      sorter: (a, b) => a.passedBuilds - b.passedBuilds,
-    },
-    {
-      title: 'Build Pass Rate',
-      dataIndex: 'buildPassRate',
-      key: 'buildPassRate',
-      render: (rate) => `${rate}%`,
-      sorter: (a, b) => a.buildPassRate - b.buildPassRate,
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status) => <Tag color={getStatusColor(status)}>{status?.toUpperCase()}</Tag>,
     },
     {
       title: 'Total Tests',
@@ -264,23 +155,40 @@ const ReleaseTestsByVersion = () => {
       sorter: (a, b) => a.failedTests - b.failedTests,
     },
     {
-      title: 'Test Pass Rate',
-      dataIndex: 'testPassRate',
-      key: 'testPassRate',
-      render: (rate) => `${rate}%`,
-      sorter: (a, b) => a.testPassRate - b.testPassRate,
+      title: 'Pass Rate',
+      key: 'passRate',
+      render: (_, record) => `${record.passRate}%`,
+      sorter: (a, b) => a.passRate - b.passRate,
     },
     {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
-        <Button
-          type="primary"
-          size="small"
-          onClick={() => navigate(`/release-tests/details/${record.platform}/${record.version}?project=${record.project}`)}
-        >
-          View Details
-        </Button>
+        <Space size="small">
+          <Button
+            type="primary"
+            size="small"
+            onClick={() => navigate(`/release-tests/details/${record.platform}/${record.version}?project=${record.project}`)}
+          >
+            View Details
+          </Button>
+          <Popconfirm
+            title="Delete Release Test Cycle"
+            description={`Are you sure to delete ${record.version} (${record.project})? This will delete all associated test executions.`}
+            onConfirm={() => handleDeleteCycle(record)}
+            okText="Delete"
+            cancelText="Cancel"
+            okButtonProps={{ danger: true }}
+          >
+            <Button
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+            >
+              Delete
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -294,9 +202,9 @@ const ReleaseTestsByVersion = () => {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={handleCreateTest}
+              onClick={showCreateModal}
             >
-              Add Release Test
+              New Cycle
             </Button>
             <Button
               icon={<ReloadOutlined />}
@@ -311,89 +219,78 @@ const ReleaseTestsByVersion = () => {
         <Table
           dataSource={testCycles}
           columns={columns}
-          rowKey="key"
+          rowKey="id"
           loading={loading}
           pagination={{ pageSize: 10 }}
           scroll={{ x: 'max-content' }}
         />
       </Card>
 
-      {/* Create Test Modal */}
       <Modal
-        title="Add New Release Test"
-        open={modalOpen}
-        onCancel={() => {
-          setModalOpen(false);
-          form.resetFields();
-        }}
-        onOk={handleSaveTest}
-        okText="Save"
-        confirmLoading={saving}
-        width={800}
+        title="Create New Release Test Cycle"
+        open={createModalVisible}
+        onCancel={() => setCreateModalVisible(false)}
+        onOk={() => form.submit()}
+        confirmLoading={creating}
+        width={700}
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleCreateCycle}
+          initialValues={{
+            project: 'ftm',
+            platform: 'all'
+          }}
+        >
           <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Platform"
-                name="platform"
-                rules={[{ required: true, message: 'Please select platform' }]}
-              >
-                <Select placeholder="Select platform">
-                  <Select.Option value="android">Android</Select.Option>
-                  <Select.Option value="ios">iOS</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
             <Col span={12}>
               <Form.Item
                 label="Version"
                 name="version"
                 rules={[{ required: true, message: 'Please enter version' }]}
               >
-                <Input placeholder="e.g., 1.2.3" />
+                <Input placeholder="e.g., 6.4.0" />
               </Form.Item>
             </Col>
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 label="Project"
                 name="project"
                 rules={[{ required: true, message: 'Please select project' }]}
               >
-                <Select placeholder="Select project">
-                  <Select.Option value="ftm">FTM</Select.Option>
-                  <Select.Option value="fortiexplorer">FortiExplorer GO</Select.Option>
-                  <Select.Option value="fortiedr">FortiEDR Mobile</Select.Option>
+                <Select>
+                  <Option value="ftm">FTM</Option>
+                  <Option value="fortiexplorer">FortiExplorer GO</Option>
+                  <Option value="fortiedr">FortiEDR Mobile</Option>
                 </Select>
               </Form.Item>
             </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Platform"
+                name="platform"
+                rules={[{ required: true, message: 'Please select platform' }]}
+              >
+                <Select>
+                  <Option value="all">All</Option>
+                  <Option value="android">Android</Option>
+                  <Option value="ios">iOS</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                label="Description"
+                name="description"
+              >
+                <Input placeholder="Optional description" />
+              </Form.Item>
+            </Col>
           </Row>
-
-          {/* Hidden fields with default values */}
-          <Form.Item
-            name="build_number"
-            initialValue=""
-            hidden
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="test_suite"
-            initialValue="regression"
-            hidden
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="test_type"
-            initialValue="critical"
-            hidden
-          >
-            <Input />
-          </Form.Item>
         </Form>
       </Modal>
     </div>

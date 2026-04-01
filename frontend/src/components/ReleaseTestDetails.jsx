@@ -1,12 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tag, message, Divider, Popover, Spin } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
   PlusOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  PlayCircleOutlined,
+  SettingOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  SyncOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { API_URL } from '../constants';
@@ -15,6 +21,8 @@ const ReleaseTestDetails = () => {
   const { platform, version } = useParams();
   const navigate = useNavigate();
   const [tests, setTests] = useState([]);
+  const [parentTests, setParentTests] = useState([]); // Parent tests only
+  const [subTasks, setSubTasks] = useState([]); // Sub-tasks only
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // create, edit, or view
@@ -22,6 +30,66 @@ const ReleaseTestDetails = () => {
   const [viewingTest, setViewingTest] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
+  const [jenkinsModalOpen, setJenkinsModalOpen] = useState(false);
+  const [jenkinsLoading, setJenkinsLoading] = useState(false);
+  const [jenkinsForm] = Form.useForm();
+  const [pipelineMode, setPipelineMode] = useState(false);
+  const [selectedPlatforms, setSelectedPlatforms] = useState(['android', 'ios']);
+  // Version selection state
+  const [selectedAndroidVersions, setSelectedAndroidVersions] = useState(['android_15']);
+  const [selectedIosVersions, setSelectedIosVersions] = useState(['ios_16']);
+
+  // Android versions: android_15, android_14, android_13, android_12, android_11, android_10
+  const androidVersions = [
+    { label: 'Android 15', value: 'android_15' },
+    { label: 'Android 14', value: 'android_14' },
+    { label: 'Android 13', value: 'android_13' },
+    { label: 'Android 12', value: 'android_12' },
+    { label: 'Android 11', value: 'android_11' },
+    { label: 'Android 10', value: 'android_10' },
+  ];
+
+  // iOS versions: ios_26, ios_18, ios_17, ios_16, ios_15
+  const iosVersions = [
+    { label: 'iOS 26', value: 'ios_26' },
+    { label: 'iOS 18', value: 'ios_18' },
+    { label: 'iOS 17', value: 'ios_17' },
+    { label: 'iOS 16', value: 'ios_16' },
+    { label: 'iOS 15', value: 'ios_15' },
+  ];
+
+  const handleAndroidVersionChange = (values) => {
+    if (values.includes('select_all')) {
+      setSelectedAndroidVersions(androidVersions.map(v => v.value));
+    } else if (values.includes('')) {
+      setSelectedAndroidVersions([]);
+    } else {
+      setSelectedAndroidVersions(values);
+    }
+  };
+
+  const handleIosVersionChange = (values) => {
+    if (values.includes('select_all')) {
+      setSelectedIosVersions(iosVersions.map(v => v.value));
+    } else if (values.includes('')) {
+      setSelectedIosVersions([]);
+    } else {
+      setSelectedIosVersions(values);
+    }
+  };
+
+  // Admin state
+  const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [adminToken, setAdminToken] = useState(null);
+
+  // Check admin login status on mount
+  useEffect(() => {
+    const token = localStorage.getItem('adminToken');
+    if (token) {
+      setIsAdminLoggedIn(true);
+      setAdminToken(token);
+    }
+  }, []);
 
   // Get project from URL query params
   const urlParams = new URLSearchParams(window.location.search);
@@ -56,28 +124,59 @@ const ReleaseTestDetails = () => {
         params.project = projectParam;
       }
 
-      console.log('=== DEBUG: Fetching release tests with params ===', params);
       const response = await axios.get(`${API_URL}/api/release-tests`, {
         params: params
       });
-      console.log('=== DEBUG: Received release tests data ===', response.data);
 
-      // Log test cases info for each test
-      response.data.forEach((test, index) => {
-        console.log(`Test ${index} (${test.build_number}):`, {
-          hasTestCasesDirect: !!test.test_cases,
-          testCasesCount: test.test_cases ? test.test_cases.length : 0,
-          hasTestCasesInMetadata: !!(test.metadata && test.metadata.test_cases),
-          metadataTestCasesCount: test.metadata && test.metadata.test_cases ? test.metadata.test_cases.length : 0
-        });
+      // Separate parent tests and sub-tasks
+      const allTests = response.data || [];
+      const parents = [];
+      const subtasks = [];
+
+      allTests.forEach(test => {
+        const isSubtask = test.test_metadata?.is_subtask ||
+                          test.platform?.includes('_fac_token') ||
+                          test.platform?.includes('_fgt_token') ||
+                          test.platform?.includes('_ftc_token_on_fac') ||
+                          test.platform?.includes('_ftc_token_on_fgt');
+
+        if (isSubtask) {
+          subtasks.push(test);
+        } else {
+          parents.push(test);
+        }
       });
 
-      setTests(response.data);
+      setTests(allTests);
+      setParentTests(parents);
+      setSubTasks(subtasks);
       setLoading(false);
     } catch (error) {
       console.log('=== DEBUG: Error fetching release tests ===', error);
-      message.error('Failed to fetch release tests');
+      // Only show error message if it's not a 404 (empty results)
+      if (error.response?.status !== 404) {
+        message.error('Failed to fetch release tests');
+      }
       setLoading(false);
+    }
+  };
+
+  // Polling for auto-refresh - every 5 minutes
+  const startPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+    }
+    pollTimerRef.current = setInterval(() => {
+      if (autoRefresh) {
+        pollStatusUpdates();
+      }
+    }, 300000); // 5 minutes (300000ms)
+  };
+
+  const stopPolling = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
   };
 
@@ -85,10 +184,75 @@ const ReleaseTestDetails = () => {
     try {
       setLoading(true);
       await fetchTestsByPlatformAndVersion();
+      // Also refresh subtask status if there's a build number
+      if (tests.length > 0) {
+        await axios.get(`${API_URL}/api/release-tests/refresh-subtasks/${tests[0]?.build_number}`);
+      }
       message.success('Release tests refreshed');
     } catch (error) {
       message.error('Failed to refresh release tests');
+    } finally {
       setLoading(false);
+    }
+  };
+
+
+  // Get OS version from platform string - just the number
+  const getOsVersion = (platformStr) => {
+    if (!platformStr) return '';
+    const platformLower = platformStr.toLowerCase();
+    if (platformLower.includes('android')) {
+      const match = platformStr.match(/android_(\d+)/i);
+      return match ? match[1] : platformStr;
+    }
+    if (platformLower.includes('ios')) {
+      const match = platformStr.match(/ios_(\d+)/i);
+      return match ? match[1] : platformStr;
+    }
+    return platformStr.replace(/[^0-9]/g, '');
+  };
+
+  const handleStartJenkinsTest = () => {
+    jenkinsForm.resetFields();
+    setPipelineMode(false); // Default to single platform mode
+    setJenkinsModalOpen(true);
+  };
+
+  const handleJenkinsSubmit = async () => {
+    try {
+      const values = await jenkinsForm.validateFields();
+      const { build_number, dns } = values;
+
+      setJenkinsLoading(true);
+
+      // Trigger Jenkins jobs via backend API with version support
+      // Only trigger the platform matching the current page
+      await axios.post(
+        `${API_URL}/api/release-tests/trigger-versioned`,
+        {},
+        {
+          params: {
+            build_number: build_number,
+            dns: dns || undefined,
+            android_versions: selectedAndroidVersions.join(','),
+            ios_versions: selectedIosVersions.join(','),
+            version: version,
+            project: projectParam,
+            platform_filter: platform // Pass current platform to filter
+          }
+        }
+      );
+      message.success('Jenkins tests triggered! Test records created. Status will update automatically...');
+
+      setJenkinsModalOpen(false);
+      jenkinsForm.resetFields();
+      // Refresh to show newly created test records (they will be in 'pending' status)
+      fetchTestsByPlatformAndVersion();
+    } catch (error) {
+      console.error('Error triggering Jenkins test:', error);
+      message.error('Failed to trigger Jenkins test');
+    } finally {
+      setJenkinsLoading(false);
     }
   };
 
@@ -488,18 +652,71 @@ const ReleaseTestDetails = () => {
       sorter: (a, b) => a.build_number.localeCompare(b.build_number),
     },
     {
+      title: 'OS Version',
+      key: 'os_version',
+      render: (_, record) => {
+        const osVer = getOsVersion(record.platform);
+        return <Tag>{osVer}</Tag>;
+      },
+      sorter: (a, b) => getOsVersion(a.platform).localeCompare(getOsVersion(b.platform)),
+    },
+    {
       title: 'Platform',
       dataIndex: 'platform',
       key: 'platform',
-      render: (platform) => {
-        const color = platform === 'android' ? 'green' : platform === 'ios' ? 'blue' : 'default';
-        return <Tag color={color}>{platform?.toUpperCase()}</Tag>;
+      render: (platform, record) => {
+        // Check if this is a sub-task
+        const isSubtask = record.test_metadata?.is_subtask || record.platform?.includes('_fac_token') ||
+                          record.platform?.includes('_fgt_token') ||
+                          record.platform?.includes('_ftc_token_on_fac') ||
+                          record.platform?.includes('_ftc_token_on_fgt');
+
+        let displayName = platform ? platform.toString().toUpperCase() : 'UNKNOWN';
+        let color = 'default';
+
+        if (isSubtask) {
+          // Display sub-task name
+          const taskName = record.test_metadata?.task_name || record.test_metadata?.task_display || '';
+          const taskDisplay = record.test_metadata?.task_display || taskName;
+          displayName = taskDisplay;
+          color = 'purple';
+        } else {
+          // Map platform to display name for parent tasks
+          const platformDisplay = {
+            'android_15': 'Android 15',
+            'android_14': 'Android 14',
+            'android_13': 'Android 13',
+            'android_12': 'Android 12',
+            'android_11': 'Android 11',
+            'android_10': 'Android 10',
+            'ios_26': 'iOS 26',
+            'ios_18': 'iOS 18',
+            'ios_17': 'iOS 17',
+            'ios_16': 'iOS 16',
+            'ios_15': 'iOS 15',
+            'android': 'Android',
+            'ios': 'iOS'
+          };
+          displayName = platformDisplay[platform] || (platform ? platform.toString().toUpperCase() : 'UNKNOWN');
+          color = platform?.includes('android') ? 'green' : platform?.includes('ios') ? 'blue' : 'default';
+        }
+
+        return <Tag color={color}>{displayName}</Tag>;
       },
       filters: [
-        { text: 'Android', value: 'android' },
-        { text: 'iOS', value: 'ios' }
+        { text: 'Android 15', value: 'android_15' },
+        { text: 'Android 14', value: 'android_14' },
+        { text: 'Android 13', value: 'android_13' },
+        { text: 'Android 12', value: 'android_12' },
+        { text: 'Android 11', value: 'android_11' },
+        { text: 'Android 10', value: 'android_10' },
+        { text: 'iOS 26', value: 'ios_26' },
+        { text: 'iOS 18', value: 'ios_18' },
+        { text: 'iOS 17', value: 'ios_17' },
+        { text: 'iOS 16', value: 'ios_16' },
+        { text: 'iOS 15', value: 'ios_15' }
       ],
-      onFilter: (value, record) => record.platform === value,
+      onFilter: (value, record) => record.platform === value || record.platform?.startsWith(value),
     },
     {
       title: 'Test Suite',
@@ -510,7 +727,7 @@ const ReleaseTestDetails = () => {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => <Tag color={getStatusColor(status)}>{status?.toUpperCase()}</Tag>,
+      render: (status) => <Tag color={getStatusColor(status)}>{(status || 'PENDING')?.toString()?.toUpperCase()}</Tag>,
       filters: [
         { text: 'Pending', value: 'pending' },
         { text: 'Running', value: 'running' },
@@ -656,33 +873,135 @@ const ReleaseTestDetails = () => {
             <Button
               icon={<ReloadOutlined />}
               onClick={refreshTests}
-              loading={loading}
             >
               Refresh
             </Button>
             <Button
               type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleStartJenkinsTest}
+            >
+              Start Release Test
+            </Button>
+            <Button
               icon={<PlusOutlined />}
               onClick={handleCreateTest}
             >
-              Add Release Test
+              Upload Report
             </Button>
             <Button
               onClick={() => navigate('/release-tests')}
             >
               Back to Platforms
             </Button>
+            {isAdminLoggedIn && (
+              <Button
+                icon={<SettingOutlined />}
+                onClick={() => navigate('/admin')}
+                style={{ borderColor: '#52c41a', color: '#52c41a' }}
+              >
+                Config Default Payload
+              </Button>
+            )}
           </Space>
         }
       >
-        <Table
-          dataSource={tests}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          scroll={{ x: 'max-content' }}
-        />
+        {/* Parent Tests Table */}
+        <div style={{ marginBottom: 16 }}>
+          <h3>Parent Tests</h3>
+          <Table
+            dataSource={parentTests}
+            columns={columns}
+            rowKey="id"
+            loading={false}
+            pagination={{ pageSize: 5 }}
+            scroll={{ x: 'max-content' }}
+            size="small"
+          />
+        </div>
+
+        {/* Sub-Tasks Table */}
+        <Divider />
+        <div>
+          <h3>Pipeline Sub-Tasks</h3>
+          <Table
+            dataSource={subTasks}
+            columns={[
+              {
+                title: 'Task Name',
+                key: 'task_name',
+                render: (_, record) => {
+                  const taskName = record.test_metadata?.task_name || '';
+                  const taskDisplay = record.test_metadata?.task_display || taskName;
+                  return <Tag color="purple">{taskDisplay || taskName}</Tag>;
+                }
+              },
+              {
+                title: 'OS Version',
+                key: 'os_version',
+                render: (_, record) => {
+                  const osVer = getOsVersion(record.platform);
+                  return <Tag>{osVer}</Tag>;
+                }
+              },
+              {
+                title: 'Status',
+                key: 'status',
+                render: (status) => {
+                  const statusStr = status ? status.toString() : '';
+                  const statusUpper = (statusStr || 'PENDING').toUpperCase();
+                  let color = 'default';
+                  let icon = null;
+
+                  if (statusUpper === 'SUCCESS' || statusUpper === 'PASSED') {
+                    color = 'green';
+                    icon = <CheckCircleOutlined />;
+                  } else if (statusUpper === 'FAILURE' || statusUpper === 'FAILED') {
+                    color = 'red';
+                    icon = <CloseCircleOutlined />;
+                  } else if (statusUpper === 'RUNNING' || statusUpper === 'BUILDING') {
+                    color = 'blue';
+                    icon = <SyncOutlined spin />;
+                  } else if (statusUpper === 'PENDING' || statusUpper === 'WAITING') {
+                    color = 'orange';
+                    icon = <ClockCircleOutlined />;
+                  }
+
+                  return (
+                    <Tag color={color}>
+                      {icon} {statusUpper}
+                    </Tag>
+                  );
+                }
+              },
+              {
+                title: 'Jenkins URL',
+                key: 'jenkins_url',
+                render: (_, record) => (
+                  <a href={record.jenkins_build_url || '#'} target="_blank" rel="noopener noreferrer">
+                    {record.jenkins_build_number ? `Build #${record.jenkins_build_number}` : 'Waiting...'}
+                  </a>
+                )
+              },
+              {
+                title: 'Results',
+                key: 'results',
+                render: (_, record) => (
+                  <Space size="small">
+                    <Tag color="green">{record.passed_count || 0} Passed</Tag>
+                    <Tag color="red">{record.failed_count || 0} Failed</Tag>
+                    <Tag color="orange">{record.skipped_count || 0} Skipped</Tag>
+                  </Space>
+                )
+              }
+            ]}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+            size="small"
+          />
+        </div>
       </Card>
 
       {/* Create/Edit/View Modal */}
@@ -960,6 +1279,88 @@ const ReleaseTestDetails = () => {
               )}
             </>
           )}
+        </Form>
+      </Modal>
+
+      {/* Start Release Test Modal */}
+      <Modal
+        title={`Start Release Test - ${platform ? platform.toUpperCase() : ''}${version ? ` ${version}` : ''}`}
+        open={jenkinsModalOpen}
+        onCancel={() => {
+          setJenkinsModalOpen(false);
+          jenkinsForm.resetFields();
+        }}
+        onOk={handleJenkinsSubmit}
+        okText="Start"
+        confirmLoading={jenkinsLoading}
+        width={700}
+      >
+        <Form form={jenkinsForm} layout="vertical">
+          <Form.Item
+            label="Build Number"
+            name="build_number"
+            rules={[{ required: true, message: 'Please enter build number' }]}
+          >
+            <Input placeholder="e.g., 0022, 0023" />
+          </Form.Item>
+          <Form.Item
+            label="DNS (optional)"
+            name="dns"
+            rules={[
+              {
+                pattern: /^(null|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})?$/,
+                message: 'Enter "null" or a valid IP address (e.g., 10.160.41.22)'
+              }
+            ]}
+          >
+            <Input placeholder="e.g., null or 10.160.41.22" />
+          </Form.Item>
+          {/* Only show Android versions if platform is android or no platform filter */}
+          {(platform === 'android' || !platform || platform.startsWith('android')) && (
+            <Form.Item
+              label="Android Versions"
+              name="android_versions"
+              initialValue={['android_15']}
+            >
+              <Select
+                mode="multiple"
+                options={androidVersions}
+                onChange={handleAndroidVersionChange}
+              />
+            </Form.Item>
+          )}
+          {/* Only show iOS versions if platform is ios or no platform filter */}
+          {(platform === 'ios' || !platform || platform.startsWith('ios')) && (
+            <Form.Item
+              label="iOS Versions"
+              name="ios_versions"
+              initialValue={['ios_16']}
+            >
+              <Select
+                mode="multiple"
+                options={iosVersions}
+                onChange={handleIosVersionChange}
+              />
+            </Form.Item>
+          )}
+          <Form.Item>
+            <p style={{ fontSize: 12, color: '#666' }}>
+              Will trigger Jenkins jobs for selected versions and fetch Allure reports automatically.
+            </p>
+            <p style={{ fontSize: 12, color: '#666' }}>
+              {platform === 'android' || platform?.startsWith('android') ? (
+                <>Android: {selectedAndroidVersions.join(', ') || 'None'}</>
+              ) : platform === 'ios' || platform?.startsWith('ios') ? (
+                <>iOS: {selectedIosVersions.join(', ') || 'None'}</>
+              ) : (
+                <>
+                  Android: {selectedAndroidVersions.join(', ') || 'None'}
+                  <br />
+                  iOS: {selectedIosVersions.join(', ') || 'None'}
+                </>
+              )}
+            </p>
+          </Form.Item>
         </Form>
       </Modal>
     </div>

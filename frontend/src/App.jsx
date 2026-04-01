@@ -25,6 +25,7 @@ import AcceptableTestDetail from './components/AcceptableTestDetail';
 import ReleaseTestsByVersion from './components/ReleaseTestsByVersion';
 import ReleaseTestDetails from './components/ReleaseTestDetails';
 import UnifiedWarehouse from './components/UnifiedWarehouse';
+import AdminConfig from './components/AdminConfig';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -180,9 +181,11 @@ function App() {
               <Route path="/mantis" element={<Mantis />} />
               <Route path="/preflight" element={<PreFlight jenkinsUrl={settings?.jenkins_url} />} />
               <Route path="/preflight/acceptable/:platform/:id" element={<AcceptableTestDetail />} />
+              <Route path="/release-cycles" element={<ReleaseTestsByVersion />} />
               <Route path="/release-tests" element={<ReleaseTestsByVersion />} />
               <Route path="/release-tests/details/:platform" element={<ReleaseTestDetails />} />
               <Route path="/release-tests/details/:platform/:version" element={<ReleaseTestDetails />} />
+              <Route path="/admin" element={<AdminConfig />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>
