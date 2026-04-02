@@ -252,8 +252,12 @@ class JenkinsService:
                             csv_data = StringIO(csv_content)
                             reader = csv.DictReader(csv_data)
 
+                            # Log field names for debugging
+                            logger.info(f"CSV field names: {reader.fieldnames}")
+
                             test_cases = []
                             for row in reader:
+                                logger.info(f"Row data: {row}")
                                 status = row.get('Status', '').lower()
                                 test_case = {
                                     'name': row.get('Name', ''),

@@ -138,6 +138,20 @@ def _ensure_optional_columns():
             for statement in warehouse_statements:
                 connection.execute(statement)
 
+    # Check release_candidate_tests table for broken_count column
+    release_test_columns = {col["name"]
+                            for col in inspector.get_columns("release_candidate_tests")}
+
+    release_test_statements = []
+    if "broken_count" not in release_test_columns:
+        release_test_statements.append(
+            text("ALTER TABLE release_candidate_tests ADD COLUMN broken_count INTEGER DEFAULT 0"))
+
+    if release_test_statements:
+        with engine.begin() as connection:
+            for statement in release_test_statements:
+                connection.execute(statement)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

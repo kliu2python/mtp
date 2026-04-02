@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tag, message, Divider, Popover, Spin, Drawer } from 'antd';
+import { Button, Card, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DeleteOutlined,
@@ -28,7 +28,7 @@ const ReleaseTestDetails = () => {
   const [selectedAndroidVersions, setSelectedAndroidVersions] = useState(['android_15']);
   const [selectedIosVersions, setSelectedIosVersions] = useState(['ios_16']);
   const [jenkinsSettings, setJenkinsSettings] = useState(null);
-  const [testCasesDrawer, setTestCasesDrawer] = useState({ visible: false, testCases: [], currentTest: null });
+  const [testCasesModal, setTestCasesModal] = useState({ visible: false, testCases: [], currentTest: null });
 
   // Fetch Jenkins settings
   const fetchJenkinsSettings = async () => {
@@ -481,7 +481,7 @@ const ReleaseTestDetails = () => {
       const response = await axios.get(`${API_URL}/api/release-tests/${test.id}/test-cases`);
       console.log('Test cases API response:', response.data);
 
-      setTestCasesDrawer({
+      setTestCasesModal({
         visible: true,
         testCases: response.data.test_cases || [],
         currentTest: test
@@ -492,229 +492,10 @@ const ReleaseTestDetails = () => {
     }
   };
 
-  const handleTestCasesDrawerClose = () => {
-    setTestCasesDrawer({ visible: false, testCases: [], currentTest: null });
+  const handleTestCasesModalClose = () => {
+    setTestCasesModal({ visible: false, testCases: [], currentTest: null });
   };
 
-  const handleSaveTest = async () => {
-    try {
-      const values = await form.validateFields();
-
-      // Process date fields
-      if (values.started_at) {
-        values.started_at = values.started_at.toISOString();
-      }
-      if (values.completed_at) {
-        values.completed_at = values.completed_at.toISOString();
-      }
-
-      setSaving(true);
-
-      if (modalMode === 'edit' && editingTest) {
-        await axios.put(`${API_URL}/api/release-tests/${editingTest.id}`, values);
-        message.success('Release test updated successfully');
-        setModalOpen(false);
-        form.resetFields();
-        fetchTestsByPlatformAndVersion();
-      } else {
-        // For create mode, ensure platform and version are set
-        values.platform = values.platform || platform;
-        values.version = values.version || version;
-
-        // Handle multiple copies creation
-        const copyCount = values.copy_count || 1;
-        // Remove copy_count from values as it's not needed by the backend
-        const { copy_count, ...apiValues } = values;
-        let successCount = 0;
-        const createdTestIds = [];
-
-        for (let i = 0; i < copyCount; i++) {
-          try {
-            const response = await axios.post(`${API_URL}/api/release-tests`, apiValues);
-            successCount++;
-            if (response.data && response.data.id) {
-              createdTestIds.push(response.data.id);
-            }
-          } catch (error) {
-            console.error(`Failed to create copy ${i + 1}:`, error);
-            if (copyCount === 1) {
-              throw error; // Re-throw for single copy to show error message
-            }
-          }
-        }
-
-        if (successCount > 0) {
-          if (successCount === copyCount) {
-            message.success(`Successfully created ${successCount} release test(s)`);
-          } else {
-            message.warning(`Created ${successCount} of ${copyCount} release tests. Some failed.`);
-          }
-
-          // If tests were created, prompt to upload ZIP file
-          if (createdTestIds.length > 0) {
-            // Ask user if they want to upload ZIP now
-            const uploadZip = window.confirm('Test record(s) created. Would you like to upload an Allure ZIP report now?');
-            if (uploadZip) {
-              // Upload ZIP for each created test
-              for (const testId of createdTestIds) {
-                await handlePopulateFromZipForTest(testId);
-              }
-            }
-          }
-        } else {
-          throw new Error('Failed to create any release tests');
-        }
-      }
-
-      setModalOpen(false);
-      form.resetFields();
-      fetchTestsByPlatformAndVersion();
-    } catch (error) {
-      message.error('Failed to save release test');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Helper function to handle ZIP upload for a specific test ID
-  const handlePopulateFromZipForTest = async (testId) => {
-    return new Promise((resolve, reject) => {
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = '.zip';
-      fileInput.style.display = 'none';
-
-      fileInput.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-          resolve();
-          return;
-        }
-
-        if (!file.name.endsWith('.zip')) {
-          message.error('Please select a ZIP file');
-          reject(new Error('Invalid file type'));
-          return;
-        }
-
-        try {
-          const formData = new FormData();
-          formData.append('file', file);
-
-          await axios.post(`${API_URL}/api/release-tests/${testId}/upload-zip`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          });
-
-          message.success('Release test populated from ZIP file successfully');
-          fetchTestsByPlatformAndVersion();
-          resolve();
-        } catch (error) {
-          message.error('Failed to populate release test from ZIP file');
-          reject(error);
-        }
-      };
-
-      document.body.appendChild(fileInput);
-      fileInput.click();
-      document.body.removeChild(fileInput);
-    });
-  };
-
-  const handlePopulateFromAllure = async () => {
-    try {
-      const values = await form.validateFields();
-
-      // Need to have a test ID to populate from Allure
-      if (modalMode !== 'edit' || !editingTest) {
-        message.error('Please save the test first before populating from Allure');
-        return;
-      }
-
-      // Need to have a Jenkins build URL
-      const jenkinsUrl = values.jenkins_build_url;
-      if (!jenkinsUrl) {
-        message.error('Please enter a Jenkins build URL first');
-        return;
-      }
-
-      setSaving(true);
-
-      // Extract build number from URL if present (e.g., http://.../64/ -> 64)
-      const buildNumberMatch = jenkinsUrl.match(/\/(\d+)\/$/);
-      const buildNumber = buildNumberMatch ? parseInt(buildNumberMatch[1]) : null;
-
-      // Call the backend API to populate from Allure
-      // Pass the build URL and build number (backend will download allure-report.zip)
-      await axios.post(`${API_URL}/api/release-tests/populate-from-allure`, null, {
-        params: {
-          test_id: editingTest.id,
-          build_url: jenkinsUrl.endsWith('/') ? jenkinsUrl : jenkinsUrl + '/',
-          build_number: buildNumber
-        }
-      });
-
-      message.success('Release test populated from Allure report successfully');
-      setModalOpen(false);
-      form.resetFields();
-      fetchTestsByPlatformAndVersion();
-    } catch (error) {
-      message.error('Failed to populate release test from Allure report');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handlePopulateFromZip = async () => {
-    // Create a hidden file input element
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '.zip';
-    fileInput.style.display = 'none';
-
-    fileInput.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) {
-        return;
-      }
-
-      // Validate file type
-      if (!file.name.endsWith('.zip')) {
-        message.error('Please select a ZIP file');
-        return;
-      }
-
-      setSaving(true);
-
-      try {
-        // Create FormData for file upload
-        const formData = new FormData();
-        formData.append('file', file);
-
-        // Call the backend API to upload and populate from ZIP
-        await axios.post(`${API_URL}/api/release-tests/${editingTest.id}/upload-zip`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
-
-        message.success('Release test populated from ZIP file successfully');
-        setModalOpen(false);
-        form.resetFields();
-        fetchTestsByPlatformAndVersion();
-      } catch (error) {
-        message.error('Failed to populate release test from ZIP file');
-      } finally {
-        setSaving(false);
-      }
-    };
-
-    // Trigger file selection
-    document.body.appendChild(fileInput);
-    fileInput.click();
-    document.body.removeChild(fileInput);
-  };
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -824,22 +605,18 @@ const ReleaseTestDetails = () => {
       title: 'Results',
       key: 'results',
       render: (_, record) => {
-        // Debug: log the record to see its structure
-        console.log('DEBUG Results column - record:', record);
-
-        // Use counts from backend (passed_count, failed_count, skipped_count)
+        // Use counts from backend (passed_count, failed_count, skipped_count, broken_count)
         // These are populated from Allure report data
         const passedCount = record.passed_count || 0;
         const failedCount = record.failed_count || 0;
         const skippedCount = record.skipped_count || 0;
-
-        // Debug log to help trace data
-        console.log('Results for', record.platform, ':', { passedCount, failedCount, skippedCount, test_cases: record.test_cases });
+        const brokenCount = record.broken_count || 0;
 
         return (
           <Space size="small">
             <Tag color="green">{passedCount} Passed</Tag>
             <Tag color="red">{failedCount} Failed</Tag>
+            <Tag color="purple">{brokenCount} Broken</Tag>
             <Tag color="orange">{skippedCount} Skipped</Tag>
           </Space>
         );
@@ -947,7 +724,7 @@ const ReleaseTestDetails = () => {
             columns={columns}
             rowKey="id"
             loading={false}
-            pagination={{ pageSize: 5 }}
+            pagination={{ pageSize: 10, pageSizeOptions: ['5', '10', '15'], showSizeChanger: true }}
             scroll={{ x: 'max-content' }}
             size="small"
           />
@@ -1036,15 +813,15 @@ const ReleaseTestDetails = () => {
           </Form.Item>
         </Form>
       </Modal>
-      {/* Test Cases Drawer */}
-      <Drawer
-        title={`Test Cases - ${testCasesDrawer.currentTest?.platform || ''} (${testCasesDrawer.testCases.length} tests)`}
-        placement="right"
-        width={800}
-        open={testCasesDrawer.visible}
-        onClose={handleTestCasesDrawerClose}
+      {/* Test Cases Modal */}
+      <Modal
+        title={`Test Cases - ${testCasesModal.currentTest?.platform || ''} (${testCasesModal.testCases.length} tests)`}
+        open={testCasesModal.visible}
+        onCancel={handleTestCasesModalClose}
+        footer={null}
+        width={1200}
       >
-        {testCasesDrawer.testCases.length > 0 ? (
+        {testCasesModal.testCases.length > 0 ? (
           <Table
             columns={[
               {
@@ -1052,6 +829,7 @@ const ReleaseTestDetails = () => {
                 dataIndex: 'name',
                 key: 'name',
                 render: (text) => <code>{text}</code>,
+                ellipsis: true,
               },
               {
                 title: 'Status',
@@ -1071,6 +849,7 @@ const ReleaseTestDetails = () => {
                 title: 'Test Class',
                 dataIndex: 'test_class',
                 key: 'test_class',
+                ellipsis: true,
               },
               {
                 title: 'Duration (ms)',
@@ -1078,16 +857,17 @@ const ReleaseTestDetails = () => {
                 key: 'duration_ms',
               },
             ]}
-            dataSource={testCasesDrawer.testCases}
+            dataSource={testCasesModal.testCases}
             rowKey={(record, index) => record.name || index}
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: 10, pageSizeOptions: false, showSizeChanger: false }}
+            scroll={{ x: true }}
           />
         ) : (
           <div style={{ textAlign: 'center', padding: '20px' }}>
             <p>No test cases available</p>
           </div>
         )}
-      </Drawer>
+      </Modal>
     </div>
   );
 };

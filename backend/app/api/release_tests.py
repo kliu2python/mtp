@@ -607,8 +607,8 @@ async def populate_release_test_from_allure(
     test.skipped_count = allure_data.get('skipped_count', 0)
     test.duration = allure_data.get('duration', 0)
     test.jenkins_build_url = allure_url
-    # Set status based on results
-    if test.failed_count > 0:
+    # Set status based on results (broken counts as failed)
+    if test.failed_count > 0 or test.broken_count > 0:
         from app.models.release_test import TestStatus
         test.status = TestStatus.FAILED
     elif test.passed_count > 0:
@@ -661,12 +661,13 @@ async def populate_release_test_from_zip(
     test.duration = results_data.get('duration', 0)
 
     # Store test cases in metadata instead of a separate column
-    if not test.test_metadata:
-        test.test_metadata = {}
-    test.test_metadata['test_cases'] = results_data.get('test_cases', [])
+    # Create a new dict to ensure SQLAlchemy detects the change
+    new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+    new_metadata['test_cases'] = results_data.get('test_cases', [])
+    test.test_metadata = new_metadata
 
-    # Set status based on results
-    if test.failed_count > 0:
+    # Set status based on results (broken counts as failed)
+    if test.failed_count > 0 or test.broken_count > 0:
         from app.models.release_test import TestStatus
         test.status = TestStatus.FAILED
     elif test.passed_count > 0:
@@ -735,12 +736,13 @@ async def upload_and_populate_from_zip(
         test.duration = results_data.get('duration', 0)
 
         # Store test cases in metadata instead of a separate column
-        if not test.test_metadata:
-            test.test_metadata = {}
-        test.test_metadata['test_cases'] = results_data.get('test_cases', [])
+        # Create a new dict to ensure SQLAlchemy detects the change
+        new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+        new_metadata['test_cases'] = results_data.get('test_cases', [])
+        test.test_metadata = new_metadata
 
-        # Set status based on results
-        if test.failed_count > 0:
+        # Set status based on results (broken counts as failed)
+        if test.failed_count > 0 or test.broken_count > 0:
             from app.models.release_test import TestStatus
             test.status = TestStatus.FAILED
         elif test.passed_count > 0:
@@ -1202,9 +1204,12 @@ async def get_pipeline_status(
                     test.passed_count = allure_data.get('passed_count', 0)
                     test.failed_count = allure_data.get('failed_count', 0)
                     test.skipped_count = allure_data.get('skipped_count', 0)
+                    test.broken_count = allure_data.get('broken_count', 0)
                     test.duration = allure_data.get('duration', 0)
-                    test.test_metadata = test.test_metadata or {}
-                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                    # Create a new dict to ensure SQLAlchemy detects the change
+                    new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+                    new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                    test.test_metadata = new_metadata
                     db.commit()
 
         pipeline_status["jobs"].append(job_status)
@@ -1826,10 +1831,12 @@ async def refresh_subtask_status(
                         subtask.passed_count = allure_data.get('passed_count', 0)
                         subtask.failed_count = allure_data.get('failed_count', 0)
                         subtask.skipped_count = allure_data.get('skipped_count', 0)
+                        subtask.broken_count = allure_data.get('broken_count', 0)
                         subtask.duration = allure_data.get('duration', 0)
-                        if 'test_cases' not in (subtask.test_metadata or {}):
-                            subtask.test_metadata = subtask.test_metadata or {}
-                            subtask.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                        # Create a new dict to ensure SQLAlchemy detects the change
+                        new_metadata = dict(subtask.test_metadata) if subtask.test_metadata else {}
+                        new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                        subtask.test_metadata = new_metadata
 
                 result_info["status"] = subtask.status
                 result_info["passed_count"] = subtask.passed_count
@@ -1946,16 +1953,17 @@ async def refresh_allure_reports(
                 test.passed_count = allure_data.get('passed_count', 0)
                 test.failed_count = allure_data.get('failed_count', 0)
                 test.skipped_count = allure_data.get('skipped_count', 0)
+                test.broken_count = allure_data.get('broken_count', 0)
                 test.duration = allure_data.get('duration', 0)
 
-                # Store test cases in metadata
-                if not test.test_metadata:
-                    test.test_metadata = {}
-                if 'test_cases' not in test.test_metadata:
-                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                # Store test cases in metadata (always update)
+                # Create a new dict to ensure SQLAlchemy detects the change
+                new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+                new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                test.test_metadata = new_metadata
 
-                # Set status based on results
-                if test.failed_count > 0:
+                # Set status based on results (broken counts as failed)
+                if test.failed_count > 0 or test.broken_count > 0:
                     test.status = TestStatus.FAILED
                 elif test.passed_count > 0:
                     test.status = TestStatus.PASSED
@@ -2149,15 +2157,21 @@ async def fetch_from_jenkins(
                                     existing.passed_count = allure_data.get('passed_count', 0)
                                     existing.failed_count = allure_data.get('failed_count', 0)
                                     existing.skipped_count = allure_data.get('skipped_count', 0)
-                                    existing.test_metadata = existing.test_metadata or {}
-                                    existing.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    existing.broken_count = allure_data.get('broken_count', 0)
+                                    # Create a new dict to ensure SQLAlchemy detects the change
+                                    new_metadata = dict(existing.test_metadata) if existing.test_metadata else {}
+                                    new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    existing.test_metadata = new_metadata
                                     db.commit()
                                 else:
                                     test.passed_count = allure_data.get('passed_count', 0)
                                     test.failed_count = allure_data.get('failed_count', 0)
                                     test.skipped_count = allure_data.get('skipped_count', 0)
-                                    test.test_metadata = test.test_metadata or {}
-                                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    test.broken_count = allure_data.get('broken_count', 0)
+                                    # Create a new dict to ensure SQLAlchemy detects the change
+                                    new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+                                    new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    test.test_metadata = new_metadata
                                     db.commit()
 
                         results["count"] += 1
@@ -2237,15 +2251,21 @@ async def fetch_from_jenkins(
                                     existing.passed_count = allure_data.get('passed_count', 0)
                                     existing.failed_count = allure_data.get('failed_count', 0)
                                     existing.skipped_count = allure_data.get('skipped_count', 0)
-                                    existing.test_metadata = existing.test_metadata or {}
-                                    existing.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    existing.broken_count = allure_data.get('broken_count', 0)
+                                    # Create a new dict to ensure SQLAlchemy detects the change
+                                    new_metadata = dict(existing.test_metadata) if existing.test_metadata else {}
+                                    new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    existing.test_metadata = new_metadata
                                     db.commit()
                                 else:
                                     test.passed_count = allure_data.get('passed_count', 0)
                                     test.failed_count = allure_data.get('failed_count', 0)
                                     test.skipped_count = allure_data.get('skipped_count', 0)
-                                    test.test_metadata = test.test_metadata or {}
-                                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    test.broken_count = allure_data.get('broken_count', 0)
+                                    # Create a new dict to ensure SQLAlchemy detects the change
+                                    new_metadata = dict(test.test_metadata) if test.test_metadata else {}
+                                    new_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                    test.test_metadata = new_metadata
                                     db.commit()
 
                         results["count"] += 1
