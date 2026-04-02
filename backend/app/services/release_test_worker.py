@@ -78,24 +78,38 @@ class ReleaseTestWorker:
                     if is_building:
                         test.status = 'running'
                     elif result:
-                        test.status = result.lower()
-                        if test.status in ['success', 'passed']:
+                        # Map Jenkins result to internal status
+                        result_lower = result.lower()
+                        if result in ['SUCCESS', 'PASSED']:
                             test.status = 'passed'
-                        elif test.status in ['failure', 'failed']:
+                        elif result in ['FAILURE', 'FAILED']:
                             test.status = 'failed'
+                        elif result in ['UNSTABLE']:
+                            test.status = 'failed'
+                        elif result in ['ABORTED']:
+                            test.status = 'aborted'
+                        else:
+                            test.status = result_lower
 
-                        # Fetch Allure report on completion
-                        if test.jenkins_build_url:
-                            allure_url = f"{test.jenkins_build_url.rstrip('/')}allure"
-                            allure_data = jenkins.fetch_allure_report_data(allure_url)
+                        # Fetch Allure report on completion using the latest build_url
+                        current_build_url = build_url or test.jenkins_build_url
+                        if current_build_url:
+                            build_url_clean = current_build_url.rstrip('/') + '/'
+                            logger.info(f"Fetching Allure report from: {build_url_clean}")
+                            allure_data = jenkins.fetch_allure_report_data(build_url_clean)
                             if allure_data:
+                                logger.info(f"Allure data fetched: {allure_data}")
                                 test.passed_count = allure_data.get('passed_count', 0)
                                 test.failed_count = allure_data.get('failed_count', 0)
                                 test.skipped_count = allure_data.get('skipped_count', 0)
                                 test.duration = allure_data.get('duration', 0)
-                                if 'test_cases' not in (test.test_metadata or {}):
-                                    test.test_metadata = test.test_metadata or {}
-                                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                                if not test.test_metadata:
+                                    test.test_metadata = {}
+                                test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                            else:
+                                logger.warning(f"Failed to fetch Allure data from {build_url_clean}")
+                        else:
+                            logger.warning(f"No build URL available for Allure fetch")
 
                     test.jenkins_build_number = build_num
                     test.jenkins_build_url = build_url
@@ -103,7 +117,7 @@ class ReleaseTestWorker:
                     db.commit()
 
                     # Stop monitoring if complete
-                    if result and result in ['SUCCESS', 'FAILURE', 'UNSTABLE']:
+                    if result and result in ['SUCCESS', 'FAILURE', 'UNSTABLE', 'ABORTED']:
                         logger.info(f"Job {test_id} completed with status {test.status}")
                         return
 

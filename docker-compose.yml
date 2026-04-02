@@ -4,7 +4,7 @@ services:
   # PostgreSQL Database
   db:
     image: postgres:15-alpine
-    container_name: testplatform-db
+    container_name: mtp-db
     environment:
       POSTGRES_USER: testuser
       POSTGRES_PASSWORD: testpass
@@ -24,7 +24,7 @@ services:
   # Redis
   redis:
     image: redis:7-alpine
-    container_name: testplatform-redis
+    container_name: mtp-redis
     ports:
       - "6379:6379"
     networks:
@@ -38,7 +38,7 @@ services:
   # Backend API
   backend:
     build: ./backend
-    container_name: testplatform-backend
+    container_name: mtp-backend
     ports:
       - "8000:8000"
     environment:
@@ -74,7 +74,7 @@ services:
       context: ./frontend
       args:
         - VITE_APP_VERSION=1.5.0
-    container_name: testplatform-frontend
+    container_name: mtp-frontend
     ports:
       - "80:80"
       - "443:443"

@@ -1,14 +1,18 @@
 """
 Jenkins API endpoints
 """
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Query, Depends
+from sqlalchemy.orm import Session
 import uuid
 import threading
 import time
+from typing import Optional, List, Dict, Any
+from datetime import datetime
 
-from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService
+from app.services.jenkins_service import jenkins_service, extract_job_path, JenkinsService, get_jenkins_job_status_manager
 from app.services.mongodb import MongoDBAPI
 from app.services.logger import get_logger
+from app.core.database import get_db
 
 logger = get_logger()
 
@@ -275,3 +279,206 @@ def DeleteFTMiOSResult(request: Request):
     except Exception:
         return "auth failed", 500
     return results, 200
+
+
+# =============================================================================
+# Jenkins Job Status Management APIs
+# =============================================================================
+
+@router.get("/job-status/status")
+def get_job_status(
+    job_url: str = Query(..., description="Jenkins Job URL"),
+    timestamp: Optional[str] = Query(None, description="ISO format timestamp for comparison"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get Jenkins Job status.
+
+    - **job_url**: Jenkins Job URL
+    - **timestamp**: Reference timestamp for status comparison (ISO format)
+
+    Status descriptions:
+    - **running**: A build is currently executing
+    - **completed**: Last completed build time >= parameter timestamp
+    - **pending**: Last completed build time < parameter timestamp (not started yet)
+    """
+    try:
+        manager = get_jenkins_job_status_manager(db)
+
+        # Parse timestamp
+        parameter_timestamp = None
+        if timestamp:
+            try:
+                parameter_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid timestamp format: {e}")
+
+        # Get status (without refresh)
+        job_url_normalized = job_url.rstrip('/') + '/'
+        status_record = manager.get_status(job_url_normalized)
+
+        if not status_record:
+            raise HTTPException(status_code=404, detail="Job status not found")
+
+        status_record['status_description'] = _get_status_description(status_record.get('computed_status'))
+        return status_record
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get job status: {str(e)}")
+
+
+@router.post("/job-status/update")
+def update_job_status(
+    job_url: str = Query(..., description="Jenkins Job URL"),
+    job_name: Optional[str] = Query(None, description="Job name"),
+    timestamp: Optional[str] = Query(None, description="ISO format timestamp for comparison"),
+    db: Session = Depends(get_db)
+):
+    """
+    Update job status from Jenkins.
+
+    - **job_url**: Jenkins Job URL
+    - **job_name**: Job name (optional)
+    - **timestamp**: Reference timestamp for status comparison (ISO format)
+
+    This endpoint will:
+    1. Connect to Jenkins server to fetch latest status
+    2. Update database record
+    3. Compute and return status
+    """
+    try:
+        manager = get_jenkins_job_status_manager(db)
+
+        # Parse timestamp
+        parameter_timestamp = None
+        if timestamp:
+            try:
+                parameter_timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid timestamp format: {e}")
+
+        # Extract job name if not provided
+        if not job_name:
+            job_name = job_url.split('/')[-2] if job_url.strip('/').endswith('/') else job_url.split('/')[-1]
+
+        # Update status
+        result = manager.update_status_from_jenkins(job_name, job_url, parameter_timestamp)
+        result['status_description'] = _get_status_description(result.get('computed_status'))
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating job status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update job status: {str(e)}")
+
+
+@router.get("/job-status/list")
+def list_job_statuses(
+    status: Optional[str] = Query(None, description="Filter by status (running, completed, pending)"),
+    limit: int = Query(default=100, ge=1, le=1000, description="Limit results"),
+    db: Session = Depends(get_db)
+):
+    """
+    List all job statuses.
+
+    - **status**: Filter by status (running, completed, pending)
+    - **limit**: Limit number of results
+    """
+    try:
+        manager = get_jenkins_job_status_manager(db)
+        return manager.list_statuses(status_filter=status, limit=limit)
+    except Exception as e:
+        logger.error(f"Error listing job statuses: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list job statuses: {str(e)}")
+
+
+@router.delete("/job-status/delete")
+def delete_job_status(
+    job_url: str = Query(..., description="Jenkins Job URL"),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a job status record.
+
+    - **job_url**: Jenkins Job URL
+    """
+    try:
+        manager = get_jenkins_job_status_manager(db)
+
+        if manager.delete_status(job_url):
+            return {"message": "Job status deleted successfully", "job_url": job_url}
+        else:
+            raise HTTPException(status_code=404, detail="Job status not found")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting job status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete job status: {str(e)}")
+
+
+@router.post("/job-status/refresh-all")
+def refresh_all_job_statuses(db: Session = Depends(get_db)):
+    """
+    Refresh all job statuses.
+
+    This endpoint iterates through all recorded job URLs and fetches
+    the latest status from Jenkins.
+    """
+    try:
+        manager = get_jenkins_job_status_manager(db)
+        count = manager.refresh_all_statuses()
+
+        return {
+            "message": f"Refreshed {count} job status record(s)",
+            "count": count
+        }
+
+    except Exception as e:
+        logger.error(f"Error refreshing all job statuses: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh job statuses: {str(e)}")
+
+
+@router.get("/job-status/health")
+def health_check(db: Session = Depends(get_db)):
+    """
+    Health check endpoint.
+    """
+    try:
+        jenkins_version = jenkins_service.version
+
+        return {
+            "status": "healthy",
+            "jenkins_connected": True,
+            "jenkins_version": jenkins_version,
+            "database_connected": True
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+
+def _get_status_description(status: Optional[str]) -> str:
+    """
+    Get status description.
+
+    Args:
+        status: Status value
+
+    Returns:
+        str: Status description
+    """
+    descriptions = {
+        'running': 'A build is currently executing',
+        'completed': 'Last completed build finished',
+        'pending': 'Build has not started yet',
+    }
+    return descriptions.get(status, 'Unknown status') if status else 'Unknown status'

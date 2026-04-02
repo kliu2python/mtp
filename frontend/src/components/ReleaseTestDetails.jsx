@@ -1,18 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tag, message, Divider, Popover, Spin } from 'antd';
+import { Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space, Table, Tag, message, Divider, Popover, Spin, Drawer } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DeleteOutlined,
-  EditOutlined,
-  EyeOutlined,
-  PlusOutlined,
   ReloadOutlined,
   PlayCircleOutlined,
   SettingOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  SyncOutlined,
-  ClockCircleOutlined
+  FileTextOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { API_URL } from '../constants';
@@ -24,11 +18,6 @@ const ReleaseTestDetails = () => {
   const [parentTests, setParentTests] = useState([]); // Parent tests only
   const [subTasks, setSubTasks] = useState([]); // Sub-tasks only
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState('create'); // create, edit, or view
-  const [editingTest, setEditingTest] = useState(null);
-  const [viewingTest, setViewingTest] = useState(null);
-  const [saving, setSaving] = useState(false);
   const [form] = Form.useForm();
   const [jenkinsModalOpen, setJenkinsModalOpen] = useState(false);
   const [jenkinsLoading, setJenkinsLoading] = useState(false);
@@ -38,6 +27,108 @@ const ReleaseTestDetails = () => {
   // Version selection state
   const [selectedAndroidVersions, setSelectedAndroidVersions] = useState(['android_15']);
   const [selectedIosVersions, setSelectedIosVersions] = useState(['ios_16']);
+  const [jenkinsSettings, setJenkinsSettings] = useState(null);
+  const [testCasesDrawer, setTestCasesDrawer] = useState({ visible: false, testCases: [], currentTest: null });
+
+  // Fetch Jenkins settings
+  const fetchJenkinsSettings = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/settings`);
+      setJenkinsSettings(response.data);
+    } catch (error) {
+      console.error('Failed to fetch Jenkins settings:', error);
+    }
+  };
+
+  // Get Jenkins job URL for a test record
+  const getJenkinsJobUrl = (record) => {
+    if (!jenkinsSettings) return null;
+
+    const baseUrl = jenkinsSettings.jenkins_url?.replace(/\/$/, '') || '';
+    const platform = record.platform || '';
+
+    // Determine platform type (android or ios)
+    const platformType = platform.toLowerCase().startsWith('ios') ? 'ios' : 'android';
+
+    // Build the job URL based on the pattern:
+    // http://jenkins_url/job/mobile_test/job/FortiToken_Mobile/job/[platform]/job/[version]/job/[version]_auto_fac_token/
+    return `${baseUrl}/job/mobile_test/job/FortiToken_Mobile/job/${platformType}/job/${platform}/job/${platform}_auto_fac_token/`;
+  };
+
+  // Refresh Jenkins job status for a test record
+  const handleRefreshJobStatus = async (record) => {
+    try {
+      const jobUrl = getJenkinsJobUrl(record);
+      if (!jobUrl) {
+        message.error('Jenkins settings not available');
+        return;
+      }
+
+      // Get the started_at time from the test record
+      const startTime = record.started_at || record.created_at;
+      const timestamp = startTime ? new Date(startTime).toISOString() : new Date().toISOString();
+
+      // Call the API to update job status
+      await axios.post(
+        `${API_URL}/api/jenkins/job-status/update`,
+        {},
+        {
+          params: {
+            job_url: jobUrl,
+            timestamp: timestamp,
+            job_name: record.platform || 'unknown'
+          }
+        }
+      );
+
+      message.success(`Job status refreshed for ${record.platform}`);
+
+      // Refresh the test list
+      fetchTestsByPlatformAndVersion();
+    } catch (error) {
+      console.error('Error refreshing job status:', error);
+      message.error('Failed to refresh job status: ' + (error.response?.data?.detail || error.message));
+    }
+  };
+
+  // Refresh all Jenkins job statuses
+  const handleRefreshAllJobStatuses = async () => {
+    try {
+      const startTime = new Date().toISOString();
+
+      // Update all test records
+      const promises = tests.map(async (test) => {
+        const jobUrl = getJenkinsJobUrl(test);
+        if (!jobUrl) return;
+
+        const timestamp = test.started_at || test.created_at || startTime;
+
+        try {
+          await axios.post(
+            `${API_URL}/api/jenkins/job-status/update`,
+            {},
+            {
+              params: {
+                job_url: jobUrl,
+                timestamp: timestamp,
+                job_name: test.platform || 'unknown'
+              }
+            }
+          );
+        } catch (error) {
+          console.error('Error refreshing job status for', test.platform, error);
+        }
+      });
+
+      await Promise.all(promises);
+
+      message.success('All job statuses refreshed');
+      fetchTestsByPlatformAndVersion();
+    } catch (error) {
+      console.error('Error refreshing all job statuses:', error);
+      message.error('Failed to refresh all job statuses');
+    }
+  };
 
   // Android versions: android_15, android_14, android_13, android_12, android_11, android_10
   const androidVersions = [
@@ -89,6 +180,8 @@ const ReleaseTestDetails = () => {
       setIsAdminLoggedIn(true);
       setAdminToken(token);
     }
+    // Fetch Jenkins settings on mount
+    fetchJenkinsSettings();
   }, []);
 
   // Get project from URL query params
@@ -111,8 +204,8 @@ const ReleaseTestDetails = () => {
   const fetchTestsByPlatformAndVersion = async () => {
     try {
       setLoading(true);
-      // Fetch tests filtered by platform and optionally by version
-      const params = { platform: platform };
+      // Fetch tests filtered by version and project (no platform filter to get all platforms)
+      const params = {};
       if (version) {
         params.version = version;
       }
@@ -129,12 +222,13 @@ const ReleaseTestDetails = () => {
       });
 
       // Separate parent tests and sub-tasks
+      // We want to display subtasks (8 records), not parent tests (2 pipeline records)
       const allTests = response.data || [];
       const parents = [];
       const subtasks = [];
 
       allTests.forEach(test => {
-        const isSubtask = test.test_metadata?.is_subtask ||
+        const isSubtask = test.metadata?.is_subtask ||
                           test.platform?.includes('_fac_token') ||
                           test.platform?.includes('_fgt_token') ||
                           test.platform?.includes('_ftc_token_on_fac') ||
@@ -148,9 +242,59 @@ const ReleaseTestDetails = () => {
       });
 
       setTests(allTests);
-      setParentTests(parents);
+      // Display subtasks if available, otherwise display parent tests (for manual uploads)
+      setParentTests(subtasks.length > 0 ? subtasks : parents);
       setSubTasks(subtasks);
       setLoading(false);
+
+      // Auto-refresh Allure data for completed builds
+      // Check if any test needs Allure data (has Jenkins build URL but no test counts)
+      if (allTests.length > 0 && allTests[0]?.build_number) {
+        const needsAllure = allTests.some(test =>
+          test.jenkins_build_url &&
+          ((!test.passed_count && test.passed_count !== 0) ||
+           (!test.failed_count && test.failed_count !== 0) ||
+           (!test.skipped_count && test.skipped_count !== 0))
+        );
+
+        if (needsAllure) {
+          const buildNumber = allTests[0]?.build_number;
+          console.log('Auto-triggering Allure refresh for build:', buildNumber, 'tests:', allTests.map(t => ({
+            platform: t.platform,
+            jenkins_build_url: t.jenkins_build_url,
+            passed_count: t.passed_count,
+            failed_count: t.failed_count,
+            skipped_count: t.skipped_count
+          })));
+
+          // Trigger Allure refresh
+          axios.get(`${API_URL}/api/release-tests/refresh-allure/${buildNumber}`)
+            .then((response) => {
+              console.log('Allure refresh result:', response.data);
+              const count = response.data?.count || 0;
+              if (count > 0) {
+                // Data updated, reload the page to show new data
+                console.log('Allure data updated, reloading page...');
+                setTimeout(() => {
+                  window.location.reload();
+                }, 1000);
+              } else {
+                console.log('No Allure data available yet, will retry...');
+                // No data yet, retry after 2 seconds
+                setTimeout(() => {
+                  window.location.reload();
+                }, 2000);
+              }
+            })
+            .catch(err => {
+              console.log('Failed to refresh Allure data:', err);
+              // Even on error, reload to show latest state
+              setTimeout(() => {
+                window.location.reload();
+              }, 2000);
+            });
+        }
+      }
     } catch (error) {
       console.log('=== DEBUG: Error fetching release tests ===', error);
       // Only show error message if it's not a 404 (empty results)
@@ -180,21 +324,40 @@ const ReleaseTestDetails = () => {
     }
   };
 
-  const refreshTests = async () => {
+  // Combined refresh all function - refresh subtasks, allure, and job statuses
+  const handleRefreshAll = async () => {
     try {
       setLoading(true);
-      await fetchTestsByPlatformAndVersion();
-      // Also refresh subtask status if there's a build number
       if (tests.length > 0) {
-        await axios.get(`${API_URL}/api/release-tests/refresh-subtasks/${tests[0]?.build_number}`);
+        const buildNumber = tests[0]?.build_number;
+        console.log('Refreshing all data for build:', buildNumber);
+
+        // Refresh subtask status from Jenkins
+        await axios.get(`${API_URL}/api/release-tests/refresh-subtasks/${buildNumber}`);
+
+        // Refresh Allure data for completed builds
+        const allureResponse = await axios.get(`${API_URL}/api/release-tests/refresh-allure/${buildNumber}`);
+        console.log('Allure refresh result:', allureResponse.data);
+
+        // Refresh all Jenkins job statuses
+        await handleRefreshAllJobStatuses();
+
+        // Re-fetch to show updated status
+        await fetchTestsByPlatformAndVersion();
+
+        message.success(`All data refreshed. ${allureResponse.data.count || 0} Allure reports updated.`);
+      } else {
+        await fetchTestsByPlatformAndVersion();
+        message.success('Release tests refreshed');
       }
-      message.success('Release tests refreshed');
     } catch (error) {
-      message.error('Failed to refresh release tests');
+      console.error('Error refreshing all data:', error);
+      message.error('Failed to refresh data');
     } finally {
       setLoading(false);
     }
   };
+
 
 
   // Get OS version from platform string - just the number
@@ -225,6 +388,9 @@ const ReleaseTestDetails = () => {
 
       setJenkinsLoading(true);
 
+      // Record the start time before triggering
+      const startTime = new Date().toISOString();
+
       // Trigger Jenkins jobs via backend API with version support
       // Only trigger the platform matching the current page
       await axios.post(
@@ -242,6 +408,45 @@ const ReleaseTestDetails = () => {
           }
         }
       );
+
+      // Update Jenkins job status with the start time
+      // This will track the job status using the new API
+      // Only update job status if jenkinsSettings is available
+      if (jenkinsSettings?.jenkins_url) {
+        const jobUrls = [];
+
+        // Collect job URLs for all selected versions
+        if (platform === 'android' || !platform || platform?.startsWith('android')) {
+          selectedAndroidVersions.forEach(v => {
+            jobUrls.push(`${jenkinsSettings.jenkins_url}/job/mobile_test/job/FortiToken_Mobile/job/android/job/${v}/job/${v}_auto_fac_token/`);
+          });
+        }
+        if (platform === 'ios' || !platform || platform?.startsWith('ios')) {
+          selectedIosVersions.forEach(v => {
+            jobUrls.push(`${jenkinsSettings.jenkins_url}/job/mobile_test/job/FortiToken_Mobile/job/ios/job/${v}/job/${v}_auto_fac_token/`);
+          });
+        }
+
+        // Update status for each job
+        await Promise.all(jobUrls.map(async (jobUrl) => {
+          try {
+            await axios.post(
+              `${API_URL}/api/jenkins/job-status/update`,
+              {},
+              {
+                params: {
+                  job_url: jobUrl,
+                  timestamp: startTime,
+                  job_name: jobUrl.split('/').slice(-2)[0]
+                }
+              }
+            );
+          } catch (error) {
+            console.error('Failed to update job status for', jobUrl, error);
+          }
+        }));
+      }
+
       message.success('Jenkins tests triggered! Test records created. Status will update automatically...');
 
       setJenkinsModalOpen(false);
@@ -256,221 +461,6 @@ const ReleaseTestDetails = () => {
     }
   };
 
-  const handleCreateTest = () => {
-    form.resetFields();
-    form.setFieldsValue({
-      platform: platform,
-      version: version,
-      project: projectParam || 'ftm'
-    });
-    setModalMode('create');
-    setEditingTest(null);
-    setModalOpen(true);
-  };
-
-  const handleEditTest = async (test) => {
-    console.log('=== DEBUG: handleEditTest called with test ===', test);
-
-    try {
-      // Make sure test cases are available
-      console.log('Checking test cases availability in edit mode...');
-      console.log('Direct test_cases:', test.test_cases);
-      console.log('Metadata test_cases:', test.metadata?.test_cases);
-
-      // Always try to fetch test cases from the backend to ensure we have the latest data
-      console.log('Fetching test cases from API to ensure latest data in edit mode...');
-      try {
-        const response = await axios.get(`${API_URL}/api/release-tests/${test.id}/test-cases`);
-        console.log('API response for test cases in edit mode:', response.data);
-        test.test_cases = response.data.test_cases || [];
-        console.log('Updated test cases from API in edit mode:', test.test_cases);
-      } catch (error) {
-        console.log('Failed to fetch test cases from API in edit mode, checking existing data...', error);
-        // If we can't fetch test cases, check existing data
-        if (!test.test_cases || test.test_cases.length === 0) {
-          console.log('No direct test cases found in edit mode, checking metadata...');
-          // If test cases aren't directly on the test object, check metadata
-          if (test.metadata && test.metadata.test_cases) {
-            console.log('Found test cases in metadata in edit mode, using them');
-            test.test_cases = test.metadata.test_cases;
-          } else {
-            // If we can't fetch test cases, ensure we have an empty array
-            test.test_cases = [];
-          }
-        } else {
-          console.log('Test cases already available directly on test object in edit mode');
-        }
-      }
-
-      console.log('Final test_cases for edit display:', test.test_cases);
-      console.log('Test cases count in edit mode:', test.test_cases.length);
-
-      form.setFieldsValue({
-        build_number: test.build_number,
-        platform: test.platform,
-        version: test.version,
-        project: test.project || 'ftm',
-        test_suite: test.test_suite,
-        test_type: test.test_type,
-        status: test.status,
-        started_at: test.started_at ? new Date(test.started_at) : null,
-        completed_at: test.completed_at ? new Date(test.completed_at) : null,
-        duration: test.duration,
-        passed_count: test.passed_count,
-        failed_count: test.failed_count,
-        skipped_count: test.skipped_count,
-        jenkins_job_name: test.jenkins_job_name,
-        jenkins_build_number: test.jenkins_build_number,
-        jenkins_build_url: test.jenkins_build_url,
-        apk_file_id: test.apk_file_id
-      });
-      setModalMode('edit');
-      setEditingTest(test);
-      setModalOpen(true);
-    } catch (error) {
-      console.log('Error in handleEditTest:', error);
-      message.error('Failed to prepare test for editing');
-      // Still allow editing even if we can't fetch additional data
-      // Make sure test cases are available
-      if (!test.test_cases) {
-        if (test.metadata && test.metadata.test_cases) {
-          test.test_cases = test.metadata.test_cases;
-        } else {
-          test.test_cases = [];
-        }
-      }
-
-      form.setFieldsValue({
-        build_number: test.build_number,
-        platform: test.platform,
-        version: test.version,
-        project: test.project || 'ftm',
-        test_suite: test.test_suite,
-        test_type: test.test_type,
-        status: test.status,
-        started_at: test.started_at ? new Date(test.started_at) : null,
-        completed_at: test.completed_at ? new Date(test.completed_at) : null,
-        duration: test.duration,
-        passed_count: test.passed_count,
-        failed_count: test.failed_count,
-        skipped_count: test.skipped_count,
-        jenkins_job_name: test.jenkins_job_name,
-        jenkins_build_number: test.jenkins_build_number,
-        jenkins_build_url: test.jenkins_build_url,
-        apk_file_id: test.apk_file_id
-      });
-      setModalMode('edit');
-      setEditingTest(test);
-      setModalOpen(true);
-    }
-  };
-
-  const handleViewTest = async (test) => {
-    console.log('=== DEBUG: handleViewTest called with test ===', test);
-
-    try {
-      // Make sure test cases are available
-      console.log('Checking test cases availability...');
-      console.log('Direct test_cases:', test.test_cases);
-      console.log('Metadata test_cases:', test.metadata?.test_cases);
-
-      // Always try to fetch test cases from the backend to ensure we have the latest data
-      console.log('Fetching test cases from API to ensure latest data...');
-      try {
-        const response = await axios.get(`${API_URL}/api/release-tests/${test.id}/test-cases`);
-        console.log('API response for test cases:', response.data);
-        test.test_cases = response.data.test_cases || [];
-        console.log('Updated test cases from API:', test.test_cases);
-      } catch (error) {
-        console.log('Failed to fetch test cases from API, checking existing data...', error);
-        // If we can't fetch test cases, check existing data
-        if (!test.test_cases || test.test_cases.length === 0) {
-          console.log('No direct test cases found, checking metadata...');
-          // If test cases aren't directly on the test object, check metadata
-          if (test.metadata && test.metadata.test_cases) {
-            console.log('Found test cases in metadata, using them');
-            test.test_cases = test.metadata.test_cases;
-          } else {
-            // If we can't fetch test cases, ensure we have an empty array
-            test.test_cases = [];
-          }
-        } else {
-          console.log('Test cases already available directly on test object');
-        }
-      }
-
-      console.log('Final test_cases for display:', test.test_cases);
-      console.log('Test cases count:', test.test_cases.length);
-
-      // Fetch Mantis issues if they exist
-      if (test.metadata && test.metadata.mantis_issues && test.metadata.mantis_issues.length > 0) {
-        try {
-          const response = await axios.get(`${API_URL}/api/release-tests/${test.id}/mantis-issues`);
-          test.mantis_issues = response.data.mantis_issues;
-        } catch (error) {
-          console.log('Failed to fetch Mantis issues:', error);
-        }
-      }
-
-      form.setFieldsValue({
-        build_number: test.build_number,
-        platform: test.platform,
-        version: test.version,
-        project: test.project || 'ftm',
-        test_suite: test.test_suite,
-        test_type: test.test_type,
-        status: test.status,
-        started_at: test.started_at ? new Date(test.started_at) : null,
-        completed_at: test.completed_at ? new Date(test.completed_at) : null,
-        duration: test.duration,
-        passed_count: test.passed_count,
-        failed_count: test.failed_count,
-        skipped_count: test.skipped_count,
-        jenkins_job_name: test.jenkins_job_name,
-        jenkins_build_number: test.jenkins_build_number,
-        jenkins_build_url: test.jenkins_build_url,
-        apk_file_id: test.apk_file_id
-      });
-      setModalMode('view');
-      setViewingTest(test);
-      setModalOpen(true);
-    } catch (error) {
-      console.log('Error in handleViewTest:', error);
-      message.error('Failed to fetch additional data');
-      // Still show the test even if additional data failed to load
-      // Make sure test cases are available
-      if (!test.test_cases) {
-        if (test.metadata && test.metadata.test_cases) {
-          test.test_cases = test.metadata.test_cases;
-        } else {
-          test.test_cases = [];
-        }
-      }
-
-      form.setFieldsValue({
-        build_number: test.build_number,
-        platform: test.platform,
-        version: test.version,
-        project: test.project || 'ftm',
-        test_suite: test.test_suite,
-        test_type: test.test_type,
-        status: test.status,
-        started_at: test.started_at ? new Date(test.started_at) : null,
-        completed_at: test.completed_at ? new Date(test.completed_at) : null,
-        duration: test.duration,
-        passed_count: test.passed_count,
-        failed_count: test.failed_count,
-        skipped_count: test.skipped_count,
-        jenkins_job_name: test.jenkins_job_name,
-        jenkins_build_number: test.jenkins_build_number,
-        jenkins_build_url: test.jenkins_build_url,
-        apk_file_id: test.apk_file_id
-      });
-      setModalMode('view');
-      setViewingTest(test);
-      setModalOpen(true);
-    }
-  };
 
   const handleDeleteTest = async (testId) => {
     try {
@@ -480,6 +470,30 @@ const ReleaseTestDetails = () => {
     } catch (error) {
       message.error('Failed to delete release test');
     }
+  };
+
+  // View test cases for a test
+  const handleViewTestCases = async (test) => {
+    console.log('=== DEBUG: handleViewTestCases called with test ===', test);
+
+    try {
+      // Fetch latest test cases from API
+      const response = await axios.get(`${API_URL}/api/release-tests/${test.id}/test-cases`);
+      console.log('Test cases API response:', response.data);
+
+      setTestCasesDrawer({
+        visible: true,
+        testCases: response.data.test_cases || [],
+        currentTest: test
+      });
+    } catch (error) {
+      console.error('Failed to fetch test cases:', error);
+      message.error('Failed to fetch test cases');
+    }
+  };
+
+  const handleTestCasesDrawerClose = () => {
+    setTestCasesDrawer({ visible: false, testCases: [], currentTest: null });
   };
 
   const handleSaveTest = async () => {
@@ -499,6 +513,9 @@ const ReleaseTestDetails = () => {
       if (modalMode === 'edit' && editingTest) {
         await axios.put(`${API_URL}/api/release-tests/${editingTest.id}`, values);
         message.success('Release test updated successfully');
+        setModalOpen(false);
+        form.resetFields();
+        fetchTestsByPlatformAndVersion();
       } else {
         // For create mode, ensure platform and version are set
         values.platform = values.platform || platform;
@@ -509,11 +526,15 @@ const ReleaseTestDetails = () => {
         // Remove copy_count from values as it's not needed by the backend
         const { copy_count, ...apiValues } = values;
         let successCount = 0;
+        const createdTestIds = [];
 
         for (let i = 0; i < copyCount; i++) {
           try {
-            await axios.post(`${API_URL}/api/release-tests`, apiValues);
+            const response = await axios.post(`${API_URL}/api/release-tests`, apiValues);
             successCount++;
+            if (response.data && response.data.id) {
+              createdTestIds.push(response.data.id);
+            }
           } catch (error) {
             console.error(`Failed to create copy ${i + 1}:`, error);
             if (copyCount === 1) {
@@ -528,6 +549,18 @@ const ReleaseTestDetails = () => {
           } else {
             message.warning(`Created ${successCount} of ${copyCount} release tests. Some failed.`);
           }
+
+          // If tests were created, prompt to upload ZIP file
+          if (createdTestIds.length > 0) {
+            // Ask user if they want to upload ZIP now
+            const uploadZip = window.confirm('Test record(s) created. Would you like to upload an Allure ZIP report now?');
+            if (uploadZip) {
+              // Upload ZIP for each created test
+              for (const testId of createdTestIds) {
+                await handlePopulateFromZipForTest(testId);
+              }
+            }
+          }
         } else {
           throw new Error('Failed to create any release tests');
         }
@@ -541,6 +574,52 @@ const ReleaseTestDetails = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Helper function to handle ZIP upload for a specific test ID
+  const handlePopulateFromZipForTest = async (testId) => {
+    return new Promise((resolve, reject) => {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = '.zip';
+      fileInput.style.display = 'none';
+
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) {
+          resolve();
+          return;
+        }
+
+        if (!file.name.endsWith('.zip')) {
+          message.error('Please select a ZIP file');
+          reject(new Error('Invalid file type'));
+          return;
+        }
+
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+
+          await axios.post(`${API_URL}/api/release-tests/${testId}/upload-zip`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+
+          message.success('Release test populated from ZIP file successfully');
+          fetchTestsByPlatformAndVersion();
+          resolve();
+        } catch (error) {
+          message.error('Failed to populate release test from ZIP file');
+          reject(error);
+        }
+      };
+
+      document.body.appendChild(fileInput);
+      fileInput.click();
+      document.body.removeChild(fileInput);
+    });
   };
 
   const handlePopulateFromAllure = async () => {
@@ -560,16 +639,19 @@ const ReleaseTestDetails = () => {
         return;
       }
 
-      // Construct Allure URL (assuming it's the same base URL + /allure)
-      const allureUrl = jenkinsUrl.endsWith('/') ? `${jenkinsUrl}allure` : `${jenkinsUrl}/allure`;
-
       setSaving(true);
 
+      // Extract build number from URL if present (e.g., http://.../64/ -> 64)
+      const buildNumberMatch = jenkinsUrl.match(/\/(\d+)\/$/);
+      const buildNumber = buildNumberMatch ? parseInt(buildNumberMatch[1]) : null;
+
       // Call the backend API to populate from Allure
+      // Pass the build URL and build number (backend will download allure-report.zip)
       await axios.post(`${API_URL}/api/release-tests/populate-from-allure`, null, {
         params: {
           test_id: editingTest.id,
-          allure_url: allureUrl
+          build_url: jenkinsUrl.endsWith('/') ? jenkinsUrl : jenkinsUrl + '/',
+          build_number: buildNumber
         }
       });
 
@@ -666,7 +748,7 @@ const ReleaseTestDetails = () => {
       key: 'platform',
       render: (platform, record) => {
         // Check if this is a sub-task
-        const isSubtask = record.test_metadata?.is_subtask || record.platform?.includes('_fac_token') ||
+        const isSubtask = record.metadata?.is_subtask || record.platform?.includes('_fac_token') ||
                           record.platform?.includes('_fgt_token') ||
                           record.platform?.includes('_ftc_token_on_fac') ||
                           record.platform?.includes('_ftc_token_on_fgt');
@@ -676,8 +758,8 @@ const ReleaseTestDetails = () => {
 
         if (isSubtask) {
           // Display sub-task name
-          const taskName = record.test_metadata?.task_name || record.test_metadata?.task_display || '';
-          const taskDisplay = record.test_metadata?.task_display || taskName;
+          const taskName = record.metadata?.task_name || record.metadata?.task_display || '';
+          const taskDisplay = record.metadata?.task_display || taskName;
           displayName = taskDisplay;
           color = 'purple';
         } else {
@@ -745,34 +827,14 @@ const ReleaseTestDetails = () => {
         // Debug: log the record to see its structure
         console.log('DEBUG Results column - record:', record);
 
-        // Calculate counts based on actual test cases if available
-        let passedCount = record.passed_count || 0;
-        let failedCount = record.failed_count || 0;
-        let skippedCount = record.skipped_count || 0;
+        // Use counts from backend (passed_count, failed_count, skipped_count)
+        // These are populated from Allure report data
+        const passedCount = record.passed_count || 0;
+        const failedCount = record.failed_count || 0;
+        const skippedCount = record.skipped_count || 0;
 
-        // If test cases are available, recalculate based on actual data
-        if (record.test_cases && Array.isArray(record.test_cases)) {
-          console.log('DEBUG: Found test_cases array with length:', record.test_cases.length);
-          passedCount = record.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            console.log('DEBUG: Test case status:', tc.status, '-> processed:', status);
-            return status === 'PASSED';
-          }).length;
-
-          failedCount = record.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            return status === 'FAILED' || status === 'BROKEN';
-          }).length;
-
-          skippedCount = record.test_cases.filter(tc => {
-            const status = tc.status ? tc.status.toString().toUpperCase() : '';
-            return status === 'SKIPPED';
-          }).length;
-
-          console.log('DEBUG: Calculated counts - Passed:', passedCount, 'Failed:', failedCount, 'Skipped:', skippedCount);
-        } else {
-          console.log('DEBUG: No test_cases array found, using original counts');
-        }
+        // Debug log to help trace data
+        console.log('Results for', record.platform, ':', { passedCount, failedCount, skippedCount, test_cases: record.test_cases });
 
         return (
           <Space size="small">
@@ -781,42 +843,6 @@ const ReleaseTestDetails = () => {
             <Tag color="orange">{skippedCount} Skipped</Tag>
           </Space>
         );
-      },
-    },
-    {
-      title: 'Component',
-      key: 'component',
-      render: (_, record) => {
-        // Extract component info from the first test case if available
-        if (record.test_cases && record.test_cases.length > 0) {
-          const firstTestCase = record.test_cases[0];
-          return firstTestCase.test_component || 'N/A';
-        }
-        return 'N/A';
-      },
-    },
-    {
-      title: 'Platform',
-      key: 'test_platform',
-      render: (_, record) => {
-        // Extract platform info from the first test case if available
-        if (record.test_cases && record.test_cases.length > 0) {
-          const firstTestCase = record.test_cases[0];
-          return firstTestCase.test_platform || 'N/A';
-        }
-        return 'N/A';
-      },
-    },
-    {
-      title: 'Device',
-      key: 'device',
-      render: (_, record) => {
-        // Extract device info from the first test case if available
-        if (record.test_cases && record.test_cases.length > 0) {
-          const firstTestCase = record.test_cases[0];
-          return firstTestCase.device_info || 'N/A';
-        }
-        return 'N/A';
       },
     },
     {
@@ -833,23 +859,34 @@ const ReleaseTestDetails = () => {
       },
     },
     {
+      title: 'Jenkins URL',
+      key: 'jenkins_url',
+      render: (_, record) => (
+        <a href={record.jenkins_build_url || '#'} target="_blank" rel="noopener noreferrer">
+          {record.jenkins_build_number ? `Build #${record.jenkins_build_number}` : 'View Build'}
+        </a>
+      ),
+    },
+    {
       title: 'Actions',
       key: 'actions',
       render: (_, record) => (
         <Space size="small">
           <Button
             size="small"
-            icon={<EyeOutlined />}
-            onClick={() => handleViewTest(record)}
+            icon={<FileTextOutlined />}
+            onClick={() => handleViewTestCases(record)}
+            title="View test cases"
           >
-            View
+            Test Cases
           </Button>
           <Button
             size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEditTest(record)}
+            icon={<ReloadOutlined />}
+            onClick={() => handleRefreshJobStatus(record)}
+            title="Refresh status from Jenkins"
           >
-            Edit
+            Refresh
           </Button>
           <Button
             size="small"
@@ -872,9 +909,10 @@ const ReleaseTestDetails = () => {
           <Space>
             <Button
               icon={<ReloadOutlined />}
-              onClick={refreshTests}
+              onClick={handleRefreshAll}
+              title="Refresh all test data from Jenkins"
             >
-              Refresh
+              Refresh All
             </Button>
             <Button
               type="primary"
@@ -884,15 +922,10 @@ const ReleaseTestDetails = () => {
               Start Release Test
             </Button>
             <Button
-              icon={<PlusOutlined />}
-              onClick={handleCreateTest}
-            >
-              Upload Report
-            </Button>
-            <Button
+              danger
               onClick={() => navigate('/release-tests')}
             >
-              Back to Platforms
+              Back
             </Button>
             {isAdminLoggedIn && (
               <Button
@@ -906,9 +939,9 @@ const ReleaseTestDetails = () => {
           </Space>
         }
       >
-        {/* Parent Tests Table */}
+        {/* Test Cases Table */}
         <div style={{ marginBottom: 16 }}>
-          <h3>Parent Tests</h3>
+          <h3>Test Cases</h3>
           <Table
             dataSource={parentTests}
             columns={columns}
@@ -919,368 +952,8 @@ const ReleaseTestDetails = () => {
             size="small"
           />
         </div>
-
-        {/* Sub-Tasks Table */}
-        <Divider />
-        <div>
-          <h3>Pipeline Sub-Tasks</h3>
-          <Table
-            dataSource={subTasks}
-            columns={[
-              {
-                title: 'Task Name',
-                key: 'task_name',
-                render: (_, record) => {
-                  const taskName = record.test_metadata?.task_name || '';
-                  const taskDisplay = record.test_metadata?.task_display || taskName;
-                  return <Tag color="purple">{taskDisplay || taskName}</Tag>;
-                }
-              },
-              {
-                title: 'OS Version',
-                key: 'os_version',
-                render: (_, record) => {
-                  const osVer = getOsVersion(record.platform);
-                  return <Tag>{osVer}</Tag>;
-                }
-              },
-              {
-                title: 'Status',
-                key: 'status',
-                render: (status) => {
-                  const statusStr = status ? status.toString() : '';
-                  const statusUpper = (statusStr || 'PENDING').toUpperCase();
-                  let color = 'default';
-                  let icon = null;
-
-                  if (statusUpper === 'SUCCESS' || statusUpper === 'PASSED') {
-                    color = 'green';
-                    icon = <CheckCircleOutlined />;
-                  } else if (statusUpper === 'FAILURE' || statusUpper === 'FAILED') {
-                    color = 'red';
-                    icon = <CloseCircleOutlined />;
-                  } else if (statusUpper === 'RUNNING' || statusUpper === 'BUILDING') {
-                    color = 'blue';
-                    icon = <SyncOutlined spin />;
-                  } else if (statusUpper === 'PENDING' || statusUpper === 'WAITING') {
-                    color = 'orange';
-                    icon = <ClockCircleOutlined />;
-                  }
-
-                  return (
-                    <Tag color={color}>
-                      {icon} {statusUpper}
-                    </Tag>
-                  );
-                }
-              },
-              {
-                title: 'Jenkins URL',
-                key: 'jenkins_url',
-                render: (_, record) => (
-                  <a href={record.jenkins_build_url || '#'} target="_blank" rel="noopener noreferrer">
-                    {record.jenkins_build_number ? `Build #${record.jenkins_build_number}` : 'Waiting...'}
-                  </a>
-                )
-              },
-              {
-                title: 'Results',
-                key: 'results',
-                render: (_, record) => (
-                  <Space size="small">
-                    <Tag color="green">{record.passed_count || 0} Passed</Tag>
-                    <Tag color="red">{record.failed_count || 0} Failed</Tag>
-                    <Tag color="orange">{record.skipped_count || 0} Skipped</Tag>
-                  </Space>
-                )
-              }
-            ]}
-            rowKey="id"
-            loading={loading}
-            pagination={false}
-            scroll={{ x: 'max-content' }}
-            size="small"
-          />
-        </div>
       </Card>
 
-      {/* Create/Edit/View Modal */}
-      <Modal
-        title={
-          modalMode === 'edit' ? 'Edit Release Test' :
-          modalMode === 'view' ? 'View Release Test' : 'Create Release Test'
-        }
-        open={modalOpen}
-        onCancel={() => {
-          setModalOpen(false);
-          form.resetFields();
-        }}
-        onOk={modalMode === 'view' ? null : handleSaveTest}
-        okText={modalMode === 'view' ? 'Close' : 'Save'}
-        confirmLoading={saving}
-        width={800}
-        footer={[
-          ...(modalMode === 'view' ? [] : [
-            <Button key="save" type="primary" loading={saving} onClick={handleSaveTest}>
-              Save
-            </Button>
-          ]),
-          ...(modalMode === 'edit' ? [
-            <Button key="populate-allure" loading={saving} onClick={handlePopulateFromAllure}>
-              Populate from Allure
-            </Button>
-          ] : []),
-          ...(modalMode === 'edit' ? [
-            <Button key="populate-zip" loading={saving} onClick={handlePopulateFromZip}>
-              Populate from ZIP
-            </Button>
-          ] : []),
-          <Button key="cancel" onClick={() => {
-            setModalOpen(false);
-            form.resetFields();
-          }}>
-            {modalMode === 'view' ? 'Close' : 'Cancel'}
-          </Button>
-        ]}
-      >
-        <Form form={form} layout="vertical">
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Build Number"
-                name="build_number"
-                rules={[{ required: true, message: 'Please enter build number' }]}
-              >
-                <Input placeholder="e.g., 1.2.3-rc1" disabled={modalMode === 'view'} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Platform"
-                name="platform"
-                rules={[{ required: true, message: 'Please select platform' }]}
-              >
-                <Select placeholder="Select platform" disabled={modalMode === 'view' || modalMode === 'create'}>
-                  <Select.Option value="android">Android</Select.Option>
-                  <Select.Option value="ios">iOS</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Version"
-                name="version"
-                rules={[{ required: true, message: 'Please enter version' }]}
-              >
-                <Input placeholder="e.g., 1.2.3" disabled={modalMode === 'view' || modalMode === 'create'} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Project"
-                name="project"
-                rules={[{ required: true, message: 'Please select project' }]}
-              >
-                <Select placeholder="Select project" disabled>
-                  <Select.Option value="ftm">FTM</Select.Option>
-                  <Select.Option value="fortiexplorer">FortiExplorer GO</Select.Option>
-                  <Select.Option value="fortiedr">FortiEDR Mobile</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Test Suite"
-                name="test_suite"
-                rules={[{ required: true, message: 'Please enter test suite' }]}
-              >
-                <Select placeholder="Select test suite" disabled={modalMode === 'view'}>
-                  <Select.Option value="functional">Functional</Select.Option>
-                  <Select.Option value="integration">Integration</Select.Option>
-                  <Select.Option value="regression">Regression</Select.Option>
-                  <Select.Option value="acceptance">Acceptance</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="Test Type"
-                name="test_type"
-                rules={[{ required: true, message: 'Please enter test type' }]}
-              >
-                <Select placeholder="Select test type" disabled={modalMode === 'view'}>
-                  <Select.Option value="smoke">Smoke</Select.Option>
-                  <Select.Option value="full">Full</Select.Option>
-                  <Select.Option value="critical">Critical Path</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="Status"
-                name="status"
-              >
-                <Select placeholder="Select status" disabled={modalMode === 'view'}>
-                  <Select.Option value="pending">Pending</Select.Option>
-                  <Select.Option value="running">Running</Select.Option>
-                  <Select.Option value="passed">Passed</Select.Option>
-                  <Select.Option value="failed">Failed</Select.Option>
-                  <Select.Option value="skipped">Skipped</Select.Option>
-                  <Select.Option value="error">Error</Select.Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            {modalMode === 'create' && (
-              <Col span={12}>
-                <Form.Item
-                  label="Number of Copies"
-                  name="copy_count"
-                  initialValue={1}
-                >
-                  <Select>
-                    <Select.Option value={1}>1</Select.Option>
-                    <Select.Option value={2}>2</Select.Option>
-                    <Select.Option value={3}>3</Select.Option>
-                    <Select.Option value={4}>4</Select.Option>
-                  </Select>
-                </Form.Item>
-              </Col>
-            )}
-          </Row>
-          {(modalMode === 'view' || modalMode === 'edit') && (
-            <>
-              {(() => {
-                const currentTest = modalMode === 'view' ? viewingTest : editingTest;
-
-                if (currentTest?.test_cases && currentTest.test_cases.length > 0) {
-                  return (
-                    <div style={{ marginTop: 20 }}>
-                      <h3>Test Cases</h3>
-                      <Table
-                        dataSource={currentTest.test_cases.map((tc, index) => ({ ...tc, key: index }))}
-                        columns={[
-                          {
-                            title: 'Name',
-                            dataIndex: 'name',
-                            key: 'name',
-                            render: (_, record) => {
-                              console.log('Rendering test case record:', record);
-                              // Handle different data formats
-                              // For Allure CSV format with test_method
-                              if (record.test_method && record.name) {
-                                return `${record.name} [${record.test_method}]`;
-                              }
-                              // For Allure CSV format with full name in 'Name' column
-                              else if (record.name && !record.classname) {
-                                return record.name;
-                              }
-                              // For traditional format with classname
-                              else if (record.classname) {
-                                return `${record.classname}.${record.name}`;
-                              }
-                              // Fallback
-                              return record.name || 'Unknown Test';
-                            }
-                          },
-                          {
-                            title: 'Status',
-                            dataIndex: 'status',
-                            key: 'status',
-                            render: (status) => {
-                              let color = 'default';
-                              const upperStatus = typeof status === 'string' ? status.toUpperCase() : status || 'UNKNOWN';
-                              if (upperStatus === 'PASSED') color = 'green';
-                              if (upperStatus === 'FAILED') color = 'red';
-                              if (upperStatus === 'SKIPPED') color = 'orange';
-                              if (upperStatus === 'BROKEN') color = 'volcano';
-                              return <Tag color={color}>{upperStatus}</Tag>;
-                            }
-                          },
-                          {
-                            title: 'Duration',
-                            dataIndex: 'duration_ms',
-                            key: 'duration_ms',
-                            render: (_, record) => {
-                              // Handle both duration_ms (CSV) and time (XML) formats
-                              if (record.duration_ms) {
-                                return `${record.duration_ms} ms`;
-                              } else if (record.time) {
-                                return `${record.time} s`;
-                              }
-                              return 'N/A';
-                            }
-                          }
-                        ]}
-                        pagination={{ pageSize: 4 }}
-                        size="small"
-                      />
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              {modalMode === 'view' && viewingTest?.mantis_issues && viewingTest.mantis_issues.length > 0 && (
-                <div style={{ marginTop: 20 }}>
-                  <h3>Mantis Issues</h3>
-                  <Table
-                    dataSource={viewingTest.mantis_issues.map((issue, index) => ({ ...issue, key: index }))}
-                    columns={[
-                      {
-                        title: 'ID',
-                        dataIndex: 'issue_id',
-                        key: 'issue_id',
-                        render: (text, record) => (
-                          <a href={record.url} target="_blank" rel="noopener noreferrer">
-                            {text}
-                          </a>
-                        ),
-                      },
-                      {
-                        title: 'Summary',
-                        dataIndex: 'summary',
-                        key: 'summary',
-                      },
-                      {
-                        title: 'Status',
-                        dataIndex: 'status',
-                        key: 'status',
-                        render: (status) => {
-                          let color = 'default';
-                          if (status === 'resolved') color = 'green';
-                          if (status === 'feedback') color = 'orange';
-                          if (status === 'assigned') color = 'blue';
-                          return <Tag color={color}>{status}</Tag>;
-                        }
-                      },
-                      {
-                        title: 'Priority',
-                        dataIndex: 'priority',
-                        key: 'priority',
-                      },
-                      {
-                        title: 'Severity',
-                        dataIndex: 'severity',
-                        key: 'severity',
-                      }
-                    ]}
-                    pagination={{ pageSize: 5 }}
-                    size="small"
-                  />
-                </div>
-              )}
-            </>
-          )}
-        </Form>
-      </Modal>
 
       {/* Start Release Test Modal */}
       <Modal
@@ -1363,6 +1036,58 @@ const ReleaseTestDetails = () => {
           </Form.Item>
         </Form>
       </Modal>
+      {/* Test Cases Drawer */}
+      <Drawer
+        title={`Test Cases - ${testCasesDrawer.currentTest?.platform || ''} (${testCasesDrawer.testCases.length} tests)`}
+        placement="right"
+        width={800}
+        open={testCasesDrawer.visible}
+        onClose={handleTestCasesDrawerClose}
+      >
+        {testCasesDrawer.testCases.length > 0 ? (
+          <Table
+            columns={[
+              {
+                title: 'Test Name',
+                dataIndex: 'name',
+                key: 'name',
+                render: (text) => <code>{text}</code>,
+              },
+              {
+                title: 'Status',
+                dataIndex: 'status',
+                key: 'status',
+                render: (status) => (
+                  <Tag color={
+                    status?.toLowerCase()?.includes('pass') ? 'green' :
+                    status?.toLowerCase()?.includes('fail') ? 'red' :
+                    status?.toLowerCase()?.includes('skip') ? 'orange' : 'default'
+                  }>
+                    {status?.toUpperCase()}
+                  </Tag>
+                ),
+              },
+              {
+                title: 'Test Class',
+                dataIndex: 'test_class',
+                key: 'test_class',
+              },
+              {
+                title: 'Duration (ms)',
+                dataIndex: 'duration_ms',
+                key: 'duration_ms',
+              },
+            ]}
+            dataSource={testCasesDrawer.testCases}
+            rowKey={(record, index) => record.name || index}
+            pagination={{ pageSize: 10 }}
+          />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '20px' }}>
+            <p>No test cases available</p>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 };

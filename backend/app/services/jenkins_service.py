@@ -9,6 +9,7 @@ import threading
 from time import sleep
 import urllib.parse
 import uuid
+from typing import Optional, Dict, Any, List
 
 import jenkins
 import json
@@ -124,109 +125,172 @@ class JenkinsService:
 
         return metadata
 
-    def fetch_allure_report_data(self, allure_url: str):
+    def fetch_allure_report_data(self, build_url: str, build_number: int = None):
         """
-        Fetch and parse Allure report data from the given URL.
+        Download and parse Allure report from Jenkins build artifact.
+
+        The Allure report is stored as allure-report.zip in Jenkins artifacts.
+        We download the ZIP and parse the test results from it.
 
         Args:
-            allure_url (str): URL to the Allure report
+            build_url (str): Jenkins job URL or build URL
+                - If job URL (e.g., http://.../job/.../): fetches latest build
+                - If build URL (e.g., http://.../job/.../64/): uses specific build
+            build_number (int, optional): Build number to use if build_url is a job URL
 
         Returns:
             dict: Parsed test results data or None if failed
         """
+        import zipfile
+        import tempfile
+        import os
+        import json
+        import re
+
         try:
-            # Construct the URL to fetch widgets data which contains summary
-            widgets_url = urljoin(allure_url.rstrip(
-                '/') + '/', 'data/widgets.json')
+            # Ensure build_url ends with /
+            build_url = build_url.rstrip('/') + '/'
 
-            logger.info(f"Fetching Allure report data from: {widgets_url}")
-            response = requests.get(widgets_url, timeout=30)
-            response.raise_for_status()
+            # Check if this is a job URL (no build number) or build URL
+            # Job URL pattern: .../job/.../job/.../
+            # Build URL pattern: .../job/.../job/.../<number>/
+            url_has_build_number = re.search(r'/(\d+)/$', build_url) is not None
 
-            data = response.json()
+            if not url_has_build_number and build_number:
+                # If no build number in URL but build_number is provided, use it
+                build_url = f"{build_url}{build_number}/"
+                logger.info(f"Using build number {build_number}, full URL: {build_url}")
+            elif not url_has_build_number:
+                # If still no build number, fetch the latest build from Jenkins
+                try:
+                    job_info = self.server.get_job_info(self._normalize_job_path(build_url))
+                    last_build = job_info.get('lastBuild')
+                    if last_build:
+                        build_number = last_build.get('number')
+                        build_url = f"{build_url}{build_number}/"
+                        logger.info(f"Fetched latest build number {build_number} from Jenkins")
+                    else:
+                        logger.error(f"Could not find last build for job: {build_url}")
+                        return None
+                except Exception as e:
+                    logger.error(f"Error fetching build info from Jenkins: {e}")
+                    return None
 
-            # Extract summary statistics
-            summary = {}
-            for widget in data.get('widgets', []):
-                if widget.get('id') == 'summary':
-                    summary = widget.get('data', {})
-                    break
+            # Construct the allure-report.zip URL
+            # From: http://.../job/.../64/
+            # To:   http://.../job/.../64/artifact/allure-report.zip
+            zip_url = f"{build_url}artifact/allure-report.zip"
 
-            # Parse the results
-            total = summary.get('total', 0)
-            passed = summary.get('passed', 0)
-            failed = summary.get('failed', 0)
-            broken = summary.get('broken', 0)
-            skipped = summary.get('skipped', 0)
-            unknown = summary.get('unknown', 0)
+            logger.info(f"Downloading Allure report from: {zip_url}")
 
-            results = {
-                'total': total,
-                'passed_count': passed,
-                'failed_count': failed,
-                'broken_count': broken,
-                'skipped_count': skipped,
-                'unknown_count': unknown,
-                'duration': summary.get('time', {}).get('duration', 0) // 1000,
-                'start_time': summary.get('time', {}).get('start', None),
-                'stop_time': summary.get('time', {}).get('stop', None),
-                'test_cases': []  # Initialize test cases array
-            }
+            # Download the ZIP file
+            zip_response = requests.get(zip_url, timeout=120)
+            zip_response.raise_for_status()
 
-            # Try to fetch test case details from suites.csv
+            # Create a temporary file to store the ZIP
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
+                tmp_file.write(zip_response.content)
+                tmp_zip_path = tmp_file.name
+
             try:
-                suites_csv_url = urljoin(
-                    allure_url.rstrip('/') + '/', 'data/suites.csv')
-                logger.info(
-                    f"Fetching Allure suites data from: {suites_csv_url}")
-                csv_response = requests.get(suites_csv_url, timeout=30)
-                if csv_response.status_code == 200:
-                    # Parse CSV data
-                    import csv
-                    from io import StringIO
-
-                    csv_data = StringIO(csv_response.text)
-                    reader = csv.DictReader(csv_data)
-
-                    test_cases = []
-                    for row in reader:
-                        test_case = {
-                            'name': row.get('Name', ''),
-                            'status': row.get('Status', '').lower(),
-                            'duration_ms': int(row.get('Duration in ms', 0)),
-                            'parent_suite': row.get('Parent Suite', ''),
-                            'suite': row.get('Suite', ''),
-                            'sub_suite': row.get('Sub Suite', ''),
-                            'test_class': row.get('Test Class', ''),
-                            'test_method': row.get('Test Method', ''),
-                            'description': row.get('Description', ''),
-                            'start_time': row.get('Start Time', ''),
-                            'stop_time': row.get('Stop Time', '')
-                        }
-                        test_cases.append(test_case)
-
-                    results['test_cases'] = test_cases
-                    logger.info(
-                        f"Successfully extracted {len(test_cases)} test cases from suites.csv")
-            except Exception as csv_error:
-                logger.warning(
-                    f"Could not fetch or parse suites.csv: {csv_error}")
-                # This is not critical, so we continue
-
-            logger.info(f"Successfully fetched Allure report data: {results}")
-            return results
+                # Extract and parse the ZIP file
+                results = self._parse_allure_zip(tmp_zip_path)
+                logger.info(f"Successfully parsed Allure report: {results.get('total', 0)} tests")
+                return results
+            finally:
+                # Clean up temp file
+                if os.path.exists(tmp_zip_path):
+                    os.remove(tmp_zip_path)
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching Allure report from {allure_url}: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            logger.error(
-                f"Error parsing Allure report JSON from {allure_url}: {e}")
+            logger.error(f"Error downloading Allure report from {zip_url}: {e}")
             return None
         except Exception as e:
-            logger.error(
-                f"Unexpected error fetching Allure report from {allure_url}: {e}")
+            logger.error(f"Unexpected error parsing Allure report: {e}")
             return None
+
+    def _normalize_job_path(self, job_url: str) -> str:
+        """Extract job path from Jenkins URL for API calls."""
+        from app.services.jenkins_service import extract_job_path
+        return extract_job_path(job_url)
+
+    def _parse_allure_zip(self, zip_path: str) -> dict:
+        """
+        Parse Allure report data from a ZIP file.
+
+        Args:
+            zip_path: Path to the allure-report.zip file
+
+        Returns:
+            dict: Parsed test results
+        """
+        import zipfile
+        import csv
+        from io import StringIO
+
+        results = {
+            'total': 0,
+            'passed_count': 0,
+            'failed_count': 0,
+            'skipped_count': 0,
+            'broken_count': 0,
+            'duration': 0,
+            'test_cases': []
+        }
+
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                # Look for suites.csv in the ZIP
+                for file_info in zip_ref.filelist:
+                    filename = file_info.filename
+
+                    # Parse suites.csv for test case details
+                    if filename.endswith('suites.csv'):
+                        logger.info(f"Parsing Allure suites.csv: {filename}")
+                        with zip_ref.open(filename) as csv_file:
+                            csv_content = csv_file.read().decode('utf-8')
+                            csv_data = StringIO(csv_content)
+                            reader = csv.DictReader(csv_data)
+
+                            test_cases = []
+                            for row in reader:
+                                status = row.get('Status', '').lower()
+                                test_case = {
+                                    'name': row.get('Name', ''),
+                                    'status': status,
+                                    'duration_ms': int(row.get('Duration in ms', 0)) if row.get('Duration in ms', '').isdigit() else 0,
+                                    'parent_suite': row.get('Parent Suite', ''),
+                                    'suite': row.get('Suite', ''),
+                                    'sub_suite': row.get('Sub Suite', ''),
+                                    'test_class': row.get('Test Class', ''),
+                                    'test_method': row.get('Test Method', ''),
+                                }
+                                test_cases.append(test_case)
+
+                                # Count by status
+                                if status == 'passed':
+                                    results['passed_count'] += 1
+                                elif status == 'failed':
+                                    results['failed_count'] += 1
+                                elif status == 'skipped':
+                                    results['skipped_count'] += 1
+                                elif status == 'broken':
+                                    results['broken_count'] += 1
+
+                                results['total'] += 1
+
+                            results['test_cases'] = test_cases
+                            logger.info(f"Extracted {len(test_cases)} test cases from suites.csv")
+
+                # If no suites.csv found, try to parse from other sources
+                if results['total'] == 0:
+                    logger.warning("No test cases found in suites.csv, trying alternative methods")
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Error parsing Allure ZIP: {e}")
+            return results
 
     def extract_results_from_zip(self, zip_file_path: str):
         """
@@ -499,8 +563,43 @@ class JenkinsService:
         return normalized
 
     def _build_job(self, job_path: str, parameters: dict):
+        """Trigger a Jenkins job with parameters. Returns the build number if available."""
         normalized_job = self._normalize_job_name(job_path)
         return self.server.build_job(normalized_job, parameters)
+
+    def get_latest_build_number(self, job_path: str, after_timestamp: datetime = None) -> int:
+        """
+        Get the latest build number for a job, optionally filtered by timestamp.
+
+        Args:
+            job_path: Jenkins job path
+            after_timestamp: If provided, only return builds after this timestamp
+
+        Returns:
+            Latest build number or None if not found
+        """
+        try:
+            job_info = self.server.get_job_info(job_path)
+            last_build = job_info.get('lastBuild')
+            if last_build:
+                build_number = last_build.get('number')
+
+                # If timestamp filter provided, verify the build is recent enough
+                if after_timestamp and build_number:
+                    build_info = self.server.get_build_info(job_path, build_number)
+                    build_timestamp = build_info.get('timestamp', 0)
+                    if build_timestamp and after_timestamp:
+                        build_ts_seconds = build_timestamp // 1000
+                        after_ts_seconds = int(after_timestamp.timestamp())
+                        # Allow 5 minute tolerance for clock drift
+                        if build_ts_seconds < after_ts_seconds - 300:
+                            logger.warning(f"Build {build_number} is older than timestamp, returning None")
+                            return None
+
+                return build_number
+        except Exception as e:
+            logger.error(f"Error getting latest build number: {e}")
+        return None
 
     def get_all_saved_jobs(self):
         res = self.mongo_client.get_all_jobs()
@@ -1060,6 +1159,236 @@ class JenkinsService:
         except Exception as e:
             print(f"Failed to fetch parameters: {e}")
             return []
+
+
+# ============================================================================
+# Jenkins Job Status Management
+# ============================================================================
+
+class JenkinsJobStatusManager:
+    """
+    Service for managing Jenkins job status tracking.
+
+    Status logic:
+    1. running: A build is currently executing
+    2. completed: Last completed build time >= parameter timestamp
+    3. pending: Last completed build time < parameter timestamp (not started yet)
+    """
+
+    def __init__(self, db):
+        self.db = db
+        self.jenkins_server = jenkins.Jenkins(
+            settings.JENKINS_URL,
+            username=settings.JENKINS_USERNAME,
+            password=settings.JENKINS_API_TOKEN
+        )
+
+    def _normalize_job_url(self, job_url: str) -> str:
+        """Normalize job URL to ensure consistent format."""
+        if not job_url:
+            return ""
+        return job_url.rstrip('/') + '/'
+
+    def _extract_job_path(self, job_url: str) -> str:
+        """Extract job path from Jenkins URL for API calls."""
+        parsed = urllib.parse.urlparse(job_url)
+        segments = parsed.path.strip('/').split('/')
+        job_parts = [segments[i + 1] for i in range(0, len(segments), 2)
+                     if segments[i] == 'job']
+        return '/'.join(job_parts)
+
+    def get_or_create_status_record(
+        self,
+        job_name: str,
+        job_url: str,
+        parameter_timestamp: Optional[datetime] = None
+    ):
+        """Get or create a job status record."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        job_url = self._normalize_job_url(job_url)
+
+        status_record = self.db.query(JenkinsJobStatus).filter(
+            JenkinsJobStatus.job_url == job_url
+        ).first()
+
+        if not status_record:
+            status_record = JenkinsJobStatus(
+                job_name=job_name,
+                job_url=job_url,
+                parameter_timestamp=parameter_timestamp,
+                computed_status='pending',
+            )
+            self.db.add(status_record)
+            self.db.commit()
+            self.db.refresh(status_record)
+            logger.info(f"Created new job status record: {job_name} ({job_url})")
+        elif parameter_timestamp:
+            status_record.parameter_timestamp = parameter_timestamp
+            self.db.commit()
+
+        return status_record
+
+    def update_status_from_jenkins(
+        self,
+        job_name: str,
+        job_url: str,
+        parameter_timestamp: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """Update job status from Jenkins."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        try:
+            job_url = self._normalize_job_url(job_url)
+
+            status_record = self.get_or_create_status_record(
+                job_name, job_url, parameter_timestamp
+            )
+
+            job_info = self.jenkins_server.get_job_info(self._extract_job_path(job_url))
+
+            running_build = None
+            last_completed_build = None
+
+            last_build = job_info.get('lastBuild')
+            if last_build:
+                build_number = last_build.get('number')
+                build_info = self.jenkins_server.get_build_info(
+                    self._extract_job_path(job_url), build_number
+                )
+
+                if build_info.get('building', False):
+                    running_build = build_info
+                else:
+                    last_completed_build = build_info
+
+            if not last_completed_build:
+                for build_key in ['lastCompletedBuild', 'lastSuccessfulBuild', 'lastFailedBuild']:
+                    build_ref = job_info.get(build_key)
+                    if build_ref:
+                        build_info = self.jenkins_server.get_build_info(
+                            self._extract_job_path(job_url), build_ref.get('number')
+                        )
+                        if build_info:
+                            last_completed_build = build_info
+                            break
+
+            from datetime import timezone
+
+            if running_build:
+                status_record.running_build_number = running_build.get('number')
+                status_record.running_build_timestamp = datetime.fromtimestamp(
+                    running_build.get('timestamp', 0) / 1000, tz=timezone.utc
+                )
+                status_record.running_build_eta = running_build.get('estimatedDuration', 0)
+            else:
+                status_record.running_build_number = None
+                status_record.running_build_timestamp = None
+                status_record.running_build_eta = 0
+
+            if last_completed_build:
+                status_record.last_completed_build_number = last_completed_build.get('number')
+                status_record.last_completed_build_timestamp = datetime.fromtimestamp(
+                    last_completed_build.get('timestamp', 0) / 1000, tz=timezone.utc
+                )
+                status_record.last_completed_build_result = last_completed_build.get('result', 'UNKNOWN')
+
+            status_record.computed_status = JenkinsJobStatus.compute_status_from_params(
+                running_build_number=status_record.running_build_number,
+                last_completed_timestamp=status_record.last_completed_build_timestamp,
+                parameter_timestamp=status_record.parameter_timestamp
+            )
+
+            # Use timezone-aware UTC datetime
+            from datetime import timezone
+            status_record.status_computed_at = datetime.now(timezone.utc)
+            status_record.last_checked_at = datetime.now(timezone.utc)
+
+            self.db.commit()
+            self.db.refresh(status_record)
+
+            logger.info(
+                f"Updated job status: {job_name}, status={status_record.computed_status}, "
+                f"running_build={status_record.running_build_number}, "
+                f"last_completed={status_record.last_completed_build_number}"
+            )
+
+            return status_record.to_dict()
+
+        except Exception as e:
+            logger.error(f"Error updating job status from Jenkins: {e}")
+            raise
+
+    def get_status(self, job_url: str) -> Optional[Dict[str, Any]]:
+        """Get job status."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        job_url = self._normalize_job_url(job_url)
+        status_record = self.db.query(JenkinsJobStatus).filter(
+            JenkinsJobStatus.job_url == job_url
+        ).first()
+
+        if status_record:
+            return status_record.to_dict()
+        return None
+
+    def list_statuses(
+        self,
+        status_filter: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """List all job statuses."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        query = self.db.query(JenkinsJobStatus).order_by(
+            JenkinsJobStatus.updated_at.desc()
+        )
+
+        if status_filter:
+            query = query.filter(JenkinsJobStatus.computed_status == status_filter)
+
+        records = query.limit(limit).all()
+        return [record.to_dict() for record in records]
+
+    def delete_status(self, job_url: str) -> bool:
+        """Delete job status record."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        job_url = self._normalize_job_url(job_url)
+        status_record = self.db.query(JenkinsJobStatus).filter(
+            JenkinsJobStatus.job_url == job_url
+        ).first()
+
+        if status_record:
+            self.db.delete(status_record)
+            self.db.commit()
+            return True
+        return False
+
+    def refresh_all_statuses(self) -> int:
+        """Refresh all job statuses."""
+        from app.models.jenkins_job_status import JenkinsJobStatus
+
+        records = self.db.query(JenkinsJobStatus).all()
+        count = 0
+
+        for record in records:
+            try:
+                self.update_status_from_jenkins(
+                    record.job_name,
+                    record.job_url,
+                    record.parameter_timestamp
+                )
+                count += 1
+            except Exception as e:
+                logger.error(f"Error refreshing status for {record.job_url}: {e}")
+
+        return count
+
+
+def get_jenkins_job_status_manager(db):
+    """Get Jenkins job status manager instance."""
+    return JenkinsJobStatusManager(db)
 
 
 # Create singleton instance

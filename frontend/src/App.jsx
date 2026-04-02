@@ -12,6 +12,7 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
   KeyOutlined,
+  CloudSyncOutlined,
 } from '@ant-design/icons';
 import './App.css';
 import Dashboard from './components/Dashboard';
@@ -26,6 +27,7 @@ import ReleaseTestsByVersion from './components/ReleaseTestsByVersion';
 import ReleaseTestDetails from './components/ReleaseTestDetails';
 import UnifiedWarehouse from './components/UnifiedWarehouse';
 import AdminConfig from './components/AdminConfig';
+import JenkinsJobStatus from './components/JenkinsJobStatus';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -41,6 +43,7 @@ function MenuContent({ collapsed, settings }) {
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
     { key: '/warehouse', icon: <KeyOutlined />, label: 'Warehouse', path: '/warehouse' },
     { key: '/release-tests', icon: <AppstoreOutlined />, label: 'Release Tests', path: '/release-tests' },
+    { key: '/jenkins-job-status', icon: <CloudSyncOutlined />, label: 'Jenkins Job Status', path: '/jenkins-job-status' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
   ];
@@ -185,6 +188,7 @@ function App() {
               <Route path="/release-tests" element={<ReleaseTestsByVersion />} />
               <Route path="/release-tests/details/:platform" element={<ReleaseTestDetails />} />
               <Route path="/release-tests/details/:platform/:version" element={<ReleaseTestDetails />} />
+              <Route path="/jenkins-job-status" element={<JenkinsJobStatus />} />
               <Route path="/admin" element={<AdminConfig />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>

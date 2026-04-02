@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.models.release_test import ReleaseCandidateTest, TestStatus, ReleaseTestCycle
 from app.models.admin_config import AdminConfig
 from app.services.logger import get_logger
+from app.services.jenkins_service import JenkinsService
 
 logger = get_logger()
 router = APIRouter()
@@ -572,7 +573,8 @@ async def get_release_test_mantis_issues(test_id: str, db: Session = Depends(get
 @router.post("/release-tests/populate-from-allure", response_model=dict)
 async def populate_release_test_from_allure(
     test_id: str,
-    allure_url: str,
+    build_url: str,  # Jenkins build URL (e.g., http://.../job/.../64/)
+    build_number: Optional[int] = None,  # Optional build number
     db: Session = Depends(get_db)
 ):
     """Automatically populate release test data from Allure report URL"""
@@ -593,8 +595,8 @@ async def populate_release_test_from_allure(
     # Create a Jenkins service instance (using default settings)
     jenkins_service = JenkinsService()
 
-    # Fetch Allure report data
-    allure_data = jenkins_service.fetch_allure_report_data(allure_url)
+    # Fetch Allure report data (expects build URL, not allure URL)
+    allure_data = jenkins_service.fetch_allure_report_data(build_url, build_number)
     if not allure_data:
         raise HTTPException(
             status_code=400, detail="Failed to fetch Allure report data")
@@ -794,7 +796,7 @@ async def start_jenkins_test(
             "RUN_STAGE": "ALL"
         }
         if dns:
-            params["dns"] = dns
+            params["fgt_ftm_dns"] = dns
         job_url = "http://10.160.13.30:8080/job/mobile_test/job/FortiToken_Mobile/job/android/job/android_15/job/android_15_auto/"
     elif platform == "ios":
         # iOS parameters
@@ -802,7 +804,7 @@ async def start_jenkins_test(
             "ftm_ipa_version": "test"
         }
         if dns:
-            params["dns"] = dns
+            params["fgt_ftm_dns"] = dns
         job_url = "http://10.160.13.30:8080/job/mobile_test/job/FortiToken_Mobile/job/iOS/job/iPhone8-ios16/job/ios16_auto_test/build?delay=0sec"
     else:
         raise HTTPException(
@@ -898,7 +900,7 @@ async def trigger_jenkins_release_test(
 
             # Override dns if provided
             if dns:
-                params["dns"] = dns
+                params["fgt_ftm_dns"] = dns
 
             job_path = extract_job_path(android_job_url)
             jenkins_service._build_job(job_path, params)
@@ -947,7 +949,7 @@ async def trigger_jenkins_release_test(
 
             # Override dns if provided
             if dns:
-                params["dns"] = dns
+                params["fgt_ftm_dns"] = dns
 
             job_path = extract_job_path(ios_job_url)
             jenkins_service._build_job(job_path, params)
@@ -1078,7 +1080,7 @@ async def trigger_pipeline_release_test(
                     params["RUN_STAGE"] = "ALL"
 
             if dns:
-                params["dns"] = dns
+                params["fgt_ftm_dns"] = dns
 
             job_path = extract_job_path(job_url)
             jenkins_service._build_job(job_path, params)
@@ -1187,11 +1189,14 @@ async def get_pipeline_status(
         # Try to fetch Allure report if complete
         if test.status in ["SUCCESS", "FAILED", "UNSTABLE"]:
             if test.jenkins_build_url:
-                allure_url = test.jenkins_build_url.rstrip('/') + "/allure"
-                job_status["allure_url"] = allure_url
+                # Use the build URL directly (the method will construct artifact URL)
+                build_url = test.jenkins_build_url.rstrip('/') + '/'
+                build_num = test.jenkins_build_number
+                job_status["allure_url"] = f"{build_url}allure/"
+                logger.info(f"Fetching Allure report from: {build_url} (build #{build_num})")
 
                 # Fetch Allure data
-                allure_data = jenkins_service.fetch_allure_report_data(allure_url)
+                allure_data = jenkins_service.fetch_allure_report_data(build_url, build_num)
                 if allure_data:
                     job_status["results"] = allure_data
                     test.passed_count = allure_data.get('passed_count', 0)
@@ -1294,14 +1299,23 @@ async def trigger_versioned_release_test(
     except Exception as e:
         logger.warning(f"Failed to fetch default payloads: {e}")
 
-    # Step 1: Create all test records with PENDING status immediately
+    # Step 1: Clean up existing records for this build_number to avoid duplicates
+    existing_tests = db.query(ReleaseCandidateTest).filter(
+        ReleaseCandidateTest.build_number == build_number
+    ).all()
+    for test in existing_tests:
+        db.delete(test)
+    db.commit()
+    logger.info(f"Deleted {len(existing_tests)} existing records for build {build_number}")
+
+    # Step 2: Create parent test records (one per platform version) and trigger Jenkins
     for ver in android_list + ios_list:
         if ver not in JENKINS_JOB_TEMPLATES:
             continue
 
         is_android = ver in ['android_10', 'android_11', 'android_12', 'android_13', 'android_14', 'android_15']
-        job_url = JENKINS_JOB_TEMPLATES[ver]
-        job_path = extract_job_path(job_url)
+        parent_job_url = JENKINS_JOB_TEMPLATES[ver]
+        parent_job_path = extract_job_path(parent_job_url)
 
         # Use default payload from admin_configs
         if is_android:
@@ -1322,9 +1336,9 @@ async def trigger_versioned_release_test(
                 params["RUN_STAGE"] = "ALL"
 
         if dns:
-            params["dns"] = dns
+            params["fgt_ftm_dns"] = dns
 
-        # Create test record with PENDING status immediately
+        # Create parent test record (pipeline)
         test = ReleaseCandidateTest(
             build_number=build_number,
             platform=ver,
@@ -1332,11 +1346,14 @@ async def trigger_versioned_release_test(
             project=project or "ftm",
             test_suite="release",
             test_type="full",
-            status="pending",  # Start with pending
+            status="pending",
             started_at=datetime.utcnow(),
-            jenkins_job_name=job_path,
-            jenkins_build_url=job_url,
-            test_metadata={"jenkins_params": params}
+            jenkins_job_name=parent_job_path,
+            jenkins_build_url=parent_job_url,
+            test_metadata={
+                "is_parent": True,
+                "jenkins_params": params
+            }
         )
         db.add(test)
         db.commit()
@@ -1345,22 +1362,68 @@ async def trigger_versioned_release_test(
         results[ver] = {
             "status": "triggered",
             "test_id": str(test.id),
-            "job_url": job_url,
+            "job_url": parent_job_url,
             "parameters": params
         }
         created_tests.append({
             "test": test,
-            "job_url": job_url,
+            "job_url": parent_job_url,
             "params": params,
             "is_android": is_android
         })
 
-        logger.info(f"Created test record for {ver} with PENDING status")
+        logger.info(f"Created parent record for {ver}")
 
-    # Step 2: Trigger Jenkins jobs asynchronously
+        # Create 4 sub-task records for this platform (for tracking status only)
+        for task_key, task_display, android_pattern, ios_pattern in SUBTASK_DEFINITIONS:
+            # Generate job name by replacing version pattern
+            base_pattern = android_pattern if is_android else ios_pattern
+            version_match = None
+            for v in ['android_10', 'android_11', 'android_12', 'android_13', 'android_14', 'android_15', 'ios16', 'ios_16']:
+                if v in base_pattern:
+                    version_match = v
+                    break
+
+            if version_match and version_match != ver:
+                job_name = base_pattern.replace(version_match, ver)
+            else:
+                job_name = base_pattern
+
+            # Generate subtask URL
+            parent_job_url_stripped = parent_job_url.rstrip('/')
+            parts = parent_job_url_stripped.split('/')
+            if len(parts) > 1:
+                base_parts = parts[:-1]
+                subtask_job_url = '/'.join(base_parts) + f'/{job_name}/'
+            else:
+                subtask_job_url = f"{parent_job_url.rstrip('/')}/{job_name}/"
+
+            # Create sub-task test record (pending, not triggered)
+            subtask = ReleaseCandidateTest(
+                build_number=build_number,
+                platform=f"{ver}_{task_key}",
+                version=version or "auto",
+                project=project or "ftm",
+                test_suite="release",
+                test_type="full",
+                status="pending",
+                jenkins_job_name=job_name,
+                jenkins_build_url=subtask_job_url,
+                test_metadata={
+                    "task_name": task_key,
+                    "task_display": task_display,
+                    "is_subtask": True,
+                    "parent_id": str(test.id)
+                }
+            )
+            db.add(subtask)
+            db.commit()
+
+        logger.info(f"Created 4 sub-task records for {ver}")
+
+    # Step 3: Trigger parent pipeline jobs asynchronously (NOT subtasks)
     def trigger_and_monitor(test_id, test_platform, job_url, params):
         try:
-            # Create a new db session for this thread
             from sqlalchemy.orm import Session
             from app.core.database import engine
             with Session(engine) as thread_db:
@@ -1374,20 +1437,33 @@ async def trigger_versioned_release_test(
 
                 job_path = extract_job_path(job_url)
 
+                # Record the time before triggering to use as reference
+                trigger_time = datetime.utcnow()
+
                 # Trigger Jenkins job
                 jenkins_service_inst._build_job(job_path, params)
                 logger.info(f"Triggered Jenkins job for {test_platform}")
 
-                # Update status to running after triggering
+                # Wait a bit for Jenkins to queue the build
+                import time
+                time.sleep(2)
+
+                # Get the build number from Jenkins (the last build after trigger time)
+                build_number = jenkins_service_inst.get_latest_build_number(job_path, trigger_time)
+                logger.info(f"Got build number {build_number} for {test_platform}")
+
+                # Update status to running and store build number
                 test.status = 'running'
                 test.started_at = datetime.utcnow()
+                if build_number:
+                    test.jenkins_build_number = build_number
+                    logger.info(f"Stored build number {build_number} for test {test_id}")
                 thread_db.commit()
 
                 logger.info(f"Updated test {test_id} to running status")
 
         except Exception as e:
             logger.error(f"Error triggering {test_platform}: {e}")
-            # Try to update status to error
             try:
                 from sqlalchemy.orm import Session
                 from app.core.database import engine
@@ -1403,7 +1479,7 @@ async def trigger_versioned_release_test(
             except Exception as e2:
                 logger.error(f"Failed to update error status: {e2}")
 
-    # Trigger all jobs in parallel threads
+    # Trigger parent jobs only (not subtasks)
     trigger_threads = []
     for test_data in created_tests:
         t = threading.Thread(
@@ -1421,61 +1497,6 @@ async def trigger_versioned_release_test(
     # Wait for all trigger threads to complete
     for t in trigger_threads:
         t.join()
-
-    # Step 3: Create sub-task records for each triggered job
-    created_subtasks = []
-    for test_data in created_tests:
-        test = test_data["test"]
-        job_url = test_data["job_url"]
-        ver = test.platform
-
-        # Create 4 sub-task records
-        for task_key, task_display, android_pattern, ios_pattern in SUBTASK_DEFINITIONS:
-            is_android = 'android' in ver.lower()
-            job_name = android_pattern if is_android else ios_pattern
-
-            # Generate correct subtask URL:
-            # Android: .../android_14_auto/ -> .../android_14_auto_fac_token/
-            # iOS:     .../ios16_auto_test/ -> .../ios16_fac_token/ (replace last segment completely)
-            job_url_stripped = job_url.rstrip('/')
-            parts = job_url_stripped.split('/')
-            if len(parts) > 1:
-                base_parts = parts[:-1]  # Remove last segment
-                subtask_job_url = '/'.join(base_parts) + f'/{job_name}/'
-            else:
-                subtask_job_url = f"{job_url.rstrip('/')}/{job_name}/"
-
-            subtask = ReleaseCandidateTest(
-                build_number=build_number,
-                platform=f"{ver}_{task_key}",
-                version=version or "auto",
-                project=project or "ftm",
-                test_suite="release",
-                test_type="full",
-                status="pending",
-                started_at=datetime.utcnow(),
-                jenkins_job_name=job_name,
-                jenkins_build_url=subtask_job_url,
-                test_metadata={
-                    "task_name": task_key,
-                    "task_display": task_display,
-                    "parent_id": str(test.id),
-                    "is_subtask": True
-                }
-            )
-            db.add(subtask)
-            created_subtasks.append({
-                "subtask": subtask,
-                "job_url": subtask_job_url,
-                "task_key": task_key
-            })
-
-            # Debug log for URL mapping
-            logger.info(f"Subtask URL: {job_url} -> {subtask_job_url}")
-
-    db.commit()
-
-    logger.info(f"Created {len(created_subtasks)} sub-task records")
 
     return {
         "message": f"Triggered {len(android_list) + len(ios_list)} Jenkins jobs",
@@ -1680,8 +1701,13 @@ async def refresh_subtask_status(
     """
     Refresh sub-task status from Jenkins and fetch Allure reports if complete.
     Updates sub-task records with current Jenkins status and results.
+
+    Only updates status if:
+    - jenkins_build_number is set (subtask has been triggered by parent pipeline)
+    - OR the build timestamp is newer than the test record's created_at
     """
     from app.services.jenkins_service import jenkins_service, extract_job_path
+    from datetime import datetime
     import re
 
     # Get all sub-task records for this build
@@ -1702,61 +1728,114 @@ async def refresh_subtask_status(
             "status": subtask.status,
         }
 
-        # Skip if no Jenkins URL or already completed
+        logger.info(f"Processing subtask: {task_name}, platform={subtask.platform}, status={subtask.status}, build_num={subtask.jenkins_build_number}, url={subtask.jenkins_build_url}")
+
+        # Skip if already completed (passed/failed/skipped are final states)
         if subtask.status in ['passed', 'failed', 'skipped']:
             results.append(result_info)
             continue
 
+        # If jenkins_build_number is not set, check Jenkins for any build
+        if not subtask.jenkins_build_number:
+            try:
+                job_path = extract_job_path(subtask.jenkins_build_url)
+                logger.info(f"Checking Jenkins for subtask {task_name} at path: {job_path}")
+
+                job_info = jenkins_service.server.get_job_info(job_path)
+                last_build = job_info.get('lastBuild')
+
+                logger.info(f"Subtask {task_name}: last_build = {last_build}")
+
+                if last_build:
+                    build_num = last_build.get('number')
+                    build_url = last_build.get('url')
+
+                    # Get full build info from Jenkins API (includes timestamp and building status)
+                    # The lastBuild from job_info only contains shallow data, need to fetch full build info
+                    try:
+                        full_build_info = jenkins_service.server.get_build_info(job_path, build_num)
+                        is_building = full_build_info.get('building', False)
+                        build_timestamp = full_build_info.get('timestamp', 0)
+                    except Exception as fetch_error:
+                        logger.warning(f"Could not fetch full build info for {task_name}: {fetch_error}")
+                        is_building = False
+                        build_timestamp = 0
+
+                    # Convert subtask created_at to timestamp (seconds)
+                    subtask_created_ts = int(subtask.created_at.timestamp())
+                    # Jenkins timestamp is in milliseconds, convert to seconds
+                    build_ts_seconds = build_timestamp // 1000 if build_timestamp > 100000000000 else build_timestamp
+
+                    logger.info(f"Subtask {task_name}: build={build_num}, building={is_building}, build_ts={build_ts_seconds}, created_ts={subtask_created_ts}")
+
+                    # Accept the build if it's currently running OR it's newer than the subtask record
+                    # Allow 10 minutes tolerance for clock drift and pipeline delays
+                    time_tolerance = 600
+                    is_new_build = (build_ts_seconds >= subtask_created_ts - time_tolerance)
+
+                    if is_building or is_new_build:
+                        subtask.jenkins_build_number = build_num
+                        if not subtask.jenkins_build_url:
+                            subtask.jenkins_build_url = build_url
+                        logger.info(f"Accepted build {build_num} for subtask {task_name} (building={is_building})")
+                    else:
+                        logger.info(f"Build {build_num} is older (ts={build_ts_seconds}, created={subtask_created_ts}), keeping as pending")
+                        results.append(result_info)
+                        continue
+                else:
+                    # No build yet - subtask job hasn't been triggered by parent pipeline
+                    logger.info(f"No lastBuild found for subtask {task_name}, keeping as pending")
+                    results.append(result_info)
+                    continue
+            except Exception as e:
+                logger.info(f"Could not check Jenkins job for subtask {task_name}: {e}")
+                results.append(result_info)
+                continue
+
         # Get status from Jenkins
-        if subtask.jenkins_build_url:
+        if subtask.jenkins_build_url and subtask.jenkins_build_number:
             try:
                 job_path = extract_job_path(subtask.jenkins_build_url)
                 build_num = subtask.jenkins_build_number
 
-                if not build_num:
-                    # Try to get last build from job info
-                    job_info = jenkins_service.server.get_job_info(job_path)
-                    last_build = job_info.get('lastBuild')
-                    if last_build:
-                        build_num = last_build.get('number')
+                build_info = jenkins_service.server.get_build_info(job_path, build_num)
+                is_building = build_info.get('building', False)
+                result = build_info.get('result')
 
-                if build_num:
-                    build_info = jenkins_service.server.get_build_info(job_path, build_num)
-                    is_building = build_info.get('building', False)
-                    result = build_info.get('result')
+                # Map Jenkins result to database enum values
+                status_map = {
+                    'success': 'passed',
+                    'failure': 'failed',
+                    'unstable': 'failed',
+                    'aborted': 'skipped',
+                }
 
-                    # Map Jenkins result to database enum values
-                    status_map = {
-                        'success': 'passed',
-                        'failure': 'failed',
-                        'unstable': 'failed',
-                        'aborted': 'skipped',
-                    }
+                if is_building:
+                    subtask.status = 'running'
+                elif result:
+                    result_lower = result.lower()
+                    subtask.status = status_map.get(result_lower, result_lower)
 
-                    if is_building:
-                        subtask.status = 'running'
-                    elif result:
-                        result_lower = result.lower()
-                        subtask.status = status_map.get(result_lower, result_lower)
+                # Fetch Allure report if complete
+                if result and result in ['SUCCESS', 'FAILURE', 'UNSTABLE']:
+                    build_url = subtask.jenkins_build_url.rstrip('/') + '/'
+                    build_num = subtask.jenkins_build_number
+                    logger.info(f"Fetching Allure report from: {build_url} (build #{build_num})")
+                    allure_data = jenkins_service.fetch_allure_report_data(build_url, build_num)
+                    if allure_data:
+                        subtask.passed_count = allure_data.get('passed_count', 0)
+                        subtask.failed_count = allure_data.get('failed_count', 0)
+                        subtask.skipped_count = allure_data.get('skipped_count', 0)
+                        subtask.duration = allure_data.get('duration', 0)
+                        if 'test_cases' not in (subtask.test_metadata or {}):
+                            subtask.test_metadata = subtask.test_metadata or {}
+                            subtask.test_metadata['test_cases'] = allure_data.get('test_cases', [])
 
-                    # Fetch Allure report if complete
-                    if result and result in ['SUCCESS', 'FAILURE', 'UNSTABLE']:
-                        allure_url = f"{subtask.jenkins_build_url.rstrip('/')}allure"
-                        allure_data = jenkins_service.fetch_allure_report_data(allure_url)
-                        if allure_data:
-                            subtask.passed_count = allure_data.get('passed_count', 0)
-                            subtask.failed_count = allure_data.get('failed_count', 0)
-                            subtask.skipped_count = allure_data.get('skipped_count', 0)
-                            subtask.duration = allure_data.get('duration', 0)
-                            if 'test_cases' not in (subtask.test_metadata or {}):
-                                subtask.test_metadata = subtask.test_metadata or {}
-                                subtask.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+                result_info["status"] = subtask.status
+                result_info["passed_count"] = subtask.passed_count
+                result_info["failed_count"] = subtask.failed_count
 
-                    result_info["status"] = subtask.status
-                    result_info["passed_count"] = subtask.passed_count
-                    result_info["failed_count"] = subtask.failed_count
-
-                    updated_count += 1
+                updated_count += 1
             except Exception as e:
                 logger.warning(f"Could not update sub-task {task_name}: {e}")
                 result_info["error"] = str(e)
@@ -1776,6 +1855,128 @@ async def refresh_subtask_status(
         "message": f"Refreshed {updated_count} sub-task statuses",
         "count": updated_count,
         "subtasks": results
+    }
+
+
+@router.get("/release-tests/refresh-allure/{build_number}", response_model=dict)
+async def refresh_allure_reports(
+    build_number: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Refresh Allure report data for release test records by build_number.
+    Fetches Allure reports from Jenkins for completed builds (SUCCESS/FAILURE/UNSTABLE).
+    Only updates records that have jenkins_build_url set.
+    Uses async requests to avoid blocking.
+    """
+    import concurrent.futures
+
+    # Get all test records for this build_number
+    tests = db.query(ReleaseCandidateTest).filter(
+        ReleaseCandidateTest.build_number == build_number
+    ).all()
+
+    if not tests:
+        return {
+            "message": f"No test records found for build {build_number}",
+            "count": 0,
+            "results": []
+        }
+
+    updated_count = 0
+    results = []
+
+    def fetch_allure_for_test(test):
+        """Inner function to fetch Allure data for a single test"""
+        result_info = {
+            "id": str(test.id),
+            "platform": test.platform,
+            "build_number": test.build_number,
+        }
+
+        # Skip if no Jenkins build URL or no build number
+        if not test.jenkins_build_url:
+            result_info["message"] = "No Jenkins build URL"
+            return result_info, False
+
+        # Skip if no build number - means the test hasn't been triggered yet
+        if not test.jenkins_build_number:
+            result_info["message"] = "No Jenkins build number (test not triggered yet)"
+            return result_info, False
+
+        # Use build URL directly (method will construct artifact URL)
+        build_url = test.jenkins_build_url.rstrip('/') + '/'
+        build_num = test.jenkins_build_number
+        logger.info(f"Fetching Allure report for {test.platform}: {build_url} (build #{build_num})")
+
+        try:
+            # Create Jenkins service instance and fetch Allure report data
+            jenkins_service = JenkinsService()
+            allure_data = jenkins_service.fetch_allure_report_data(build_url, build_num)
+
+            if allure_data and allure_data.get('total', 0) > 0:
+                result_info["allure_data"] = allure_data
+                result_info["message"] = "Allure data fetched"
+                return result_info, True
+            else:
+                result_info["message"] = "No Allure data available"
+                logger.info(f"No Allure data for {test.platform}: {allure_url}")
+                return result_info, False
+        except Exception as e:
+            result_info["error"] = str(e)
+            logger.warning(f"Could not fetch Allure data for {test.platform}: {e}")
+            return result_info, False
+
+    # Use ThreadPoolExecutor for concurrent Allure fetching
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_test = {executor.submit(fetch_allure_for_test, test): test for test in tests}
+
+        for future in concurrent.futures.as_completed(future_to_test):
+            test = future_to_test[future]
+            try:
+                result_info, has_data = future.result()
+            except Exception as e:
+                logger.error(f"Error fetching Allure for {test.platform}: {e}")
+                result_info = {"platform": test.platform, "error": str(e)}
+                has_data = False
+
+            if has_data:
+                # Update database record
+                allure_data = result_info.get("allure_data", {})
+                test.passed_count = allure_data.get('passed_count', 0)
+                test.failed_count = allure_data.get('failed_count', 0)
+                test.skipped_count = allure_data.get('skipped_count', 0)
+                test.duration = allure_data.get('duration', 0)
+
+                # Store test cases in metadata
+                if not test.test_metadata:
+                    test.test_metadata = {}
+                if 'test_cases' not in test.test_metadata:
+                    test.test_metadata['test_cases'] = allure_data.get('test_cases', [])
+
+                # Set status based on results
+                if test.failed_count > 0:
+                    test.status = TestStatus.FAILED
+                elif test.passed_count > 0:
+                    test.status = TestStatus.PASSED
+                else:
+                    test.status = TestStatus.SKIPPED
+
+                updated_count += 1
+                result_info["passed_count"] = test.passed_count
+                result_info["failed_count"] = test.failed_count
+                result_info["skipped_count"] = test.skipped_count
+                result_info["status"] = test.status
+                logger.info(f"Updated Allure data for {test.platform}: {test.passed_count} passed, {test.failed_count} failed")
+
+            results.append(result_info)
+
+    db.commit()
+
+    return {
+        "message": f"Refreshed Allure data for {updated_count} test records",
+        "count": updated_count,
+        "results": results
     }
 
 
@@ -1940,8 +2141,9 @@ async def fetch_from_jenkins(
 
                         # Fetch Allure report if complete
                         if result in ['SUCCESS', 'FAILURE', 'UNSTABLE']:
-                            allure_url = f"{build_url.rstrip('/')}allure"
-                            allure_data = jenkins_service.fetch_allure_report_data(allure_url)
+                            current_build_url = build_url.rstrip('/') + '/'
+                            logger.info(f"Fetching Allure report: {current_build_url} (build #{build_num})")
+                            allure_data = jenkins_service.fetch_allure_report_data(current_build_url, build_num)
                             if allure_data:
                                 if existing:
                                     existing.passed_count = allure_data.get('passed_count', 0)
@@ -2027,8 +2229,9 @@ async def fetch_from_jenkins(
 
                         # Fetch Allure report if complete
                         if result in ['SUCCESS', 'FAILURE', 'UNSTABLE']:
-                            allure_url = f"{build_url.rstrip('/')}allure"
-                            allure_data = jenkins_service.fetch_allure_report_data(allure_url)
+                            current_build_url = build_url.rstrip('/') + '/'
+                            logger.info(f"Fetching Allure report: {current_build_url} (build #{build_num})")
+                            allure_data = jenkins_service.fetch_allure_report_data(current_build_url, build_num)
                             if allure_data:
                                 if existing:
                                     existing.passed_count = allure_data.get('passed_count', 0)
