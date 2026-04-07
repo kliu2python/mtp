@@ -20,6 +20,22 @@ logger = get_logger()
 router = APIRouter()
 
 
+class VersionBuildNumber(BaseModel):
+    """Build number range for a specific version"""
+    version: str  # e.g., "6.4.0"
+    platform: str  # "android" or "ios"
+    min_build_number: str  # e.g., "0018"
+    max_build_number: str  # e.g., "0022"
+
+
+class ReleaseTestConfig(BaseModel):
+    """Payload for release test configuration"""
+    versions: List[str] = []
+    build_numbers: List[str] = []
+    disabled_versions: List[str] = []
+    version_build_numbers: List[VersionBuildNumber] = []
+
+
 class ReleaseTestCycleCreate(BaseModel):
     """Payload for creating a release test cycle"""
     version: str
@@ -277,12 +293,35 @@ async def list_release_cycles(
         query = query.filter(ReleaseTestCycle.status == status)
 
     cycles = query.order_by(ReleaseTestCycle.created_at.desc()).all()
+
+    # Update cycle status based on latest test results
+    for cycle in cycles:
+        tests = db.query(ReleaseCandidateTest).filter(
+            ReleaseCandidateTest.version == cycle.version,
+            ReleaseCandidateTest.project == cycle.project
+        ).all()
+        _update_cycle_status_from_tests(cycle, tests, db)
+        db.refresh(cycle)  # Refresh cycle to get latest status
+
     return [cycle.to_dict() for cycle in cycles]
 
 
 @router.post("/release-cycles", response_model=dict)
 async def create_release_cycle(cycle_data: ReleaseTestCycleCreate, db: Session = Depends(get_db)):
     """Create a new release test cycle"""
+    # Check if a cycle with the same version, platform, and project already exists
+    existing_cycle = db.query(ReleaseTestCycle).filter(
+        ReleaseTestCycle.version == cycle_data.version,
+        ReleaseTestCycle.platform == cycle_data.platform,
+        ReleaseTestCycle.project == cycle_data.project
+    ).first()
+
+    if existing_cycle:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A cycle with version '{cycle_data.version}', platform '{cycle_data.platform}', and project '{cycle_data.project}' already exists."
+        )
+
     cycle = ReleaseTestCycle(
         version=cycle_data.version,
         project=cycle_data.project,
@@ -381,7 +420,9 @@ async def delete_release_cycle(cycle_id: str, db: Session = Depends(get_db)):
 async def list_cycle_tests(cycle_id: str, db: Session = Depends(get_db)):
     """
     List all test executions for a specific cycle.
-    Since test records are created without cycle_id, we fetch by version + project.
+    Since test records are created without cycle_id, we fetch by version + project + platform.
+    Only returns sub-task tests (not parent pipeline tests) to avoid double counting.
+    Also updates cycle status based on latest test results.
     """
     try:
         cycle_uuid = uuid.UUID(cycle_id)
@@ -395,11 +436,25 @@ async def list_cycle_tests(cycle_id: str, db: Session = Depends(get_db)):
     if not cycle:
         raise HTTPException(status_code=404, detail="Release cycle not found")
 
-    # Fetch tests by version and project (since cycle_id is not set when creating tests)
-    tests = db.query(ReleaseCandidateTest).filter(
+    # Fetch tests by version, project, and platform (since cycle_id is not set when creating tests)
+    all_tests = db.query(ReleaseCandidateTest).filter(
         ReleaseCandidateTest.version == cycle.version,
-        ReleaseCandidateTest.project == cycle.project
+        ReleaseCandidateTest.project == cycle.project,
+        ReleaseCandidateTest.platform == cycle.platform
     ).all()
+
+    # Update cycle status based on current test results
+    _update_cycle_status_from_tests(cycle, all_tests, db)
+
+    # Filter to only sub-tasks (tests with is_subtask metadata or platform contains token patterns)
+    subtask_tests = [
+        test for test in all_tests
+        if (test.test_metadata and test.test_metadata.get('is_subtask')) or
+           any(suffix in test.platform for suffix in ['_fac_token', '_fgt_token', '_ftc_token_on_fac', '_ftc_token_on_fgt'])
+    ]
+
+    # If we found subtasks, return only subtasks; otherwise return all tests (for manual uploads)
+    tests = subtask_tests if subtask_tests else all_tests
 
     return [test.to_dict() for test in tests]
 
@@ -1304,15 +1359,7 @@ async def trigger_versioned_release_test(
     except Exception as e:
         logger.warning(f"Failed to fetch default payloads: {e}")
 
-    # Step 1: Clean up existing records for this build_number to avoid duplicates
-    existing_tests = db.query(ReleaseCandidateTest).filter(
-        ReleaseCandidateTest.build_number == build_number
-    ).all()
-    for test in existing_tests:
-        db.delete(test)
-    db.commit()
-    logger.info(f"Deleted {len(existing_tests)} existing records for build {build_number}")
-
+    # Step 1: No deduplication - always create new records
     # Step 2: Create parent test records (one per platform version) and trigger Jenkins
     for ver in android_list + ios_list:
         if ver not in JENKINS_JOB_TEMPLATES:
@@ -1343,7 +1390,7 @@ async def trigger_versioned_release_test(
         if dns:
             params["fgt_ftm_dns"] = dns
 
-        # Create parent test record (pipeline)
+        # Always create new test record (no deduplication)
         test = ReleaseCandidateTest(
             build_number=build_number,
             platform=ver,
@@ -1403,10 +1450,11 @@ async def trigger_versioned_release_test(
             else:
                 subtask_job_url = f"{parent_job_url.rstrip('/')}/{job_name}/"
 
-            # Create sub-task test record (pending, not triggered)
+            # Always create new subtask record (no deduplication)
+            subtask_platform = f"{ver}_{task_key}"
             subtask = ReleaseCandidateTest(
                 build_number=build_number,
-                platform=f"{ver}_{task_key}",
+                platform=subtask_platform,
                 version=version or "auto",
                 project=project or "ftm",
                 test_suite="release",
@@ -1981,6 +2029,12 @@ async def refresh_allure_reports(
 
     db.commit()
 
+    # Update cycle status after refreshing Allure data
+    try:
+        update_cycle_status(build_number, db)
+    except Exception as e:
+        logger.warning(f"Could not update cycle status: {e}")
+
     return {
         "message": f"Refreshed Allure data for {updated_count} test records",
         "count": updated_count,
@@ -1988,11 +2042,73 @@ async def refresh_allure_reports(
     }
 
 
+def _update_cycle_status_from_tests(cycle, tests, db):
+    """
+    Helper function to update cycle status based on test results.
+    Status only indicates if the cycle is complete, not the test results.
+    - 'running': some tests are still running
+    - 'completed': all tests are complete (regardless of pass/fail)
+    - 'pending': no tests have started yet
+    """
+    if not tests:
+        logger.debug(f"Cycle {cycle.version} ({cycle.project}): No tests found")
+        return
+
+    # Filter to only sub-tasks
+    subtask_tests = [
+        test for test in tests
+        if (test.test_metadata and test.test_metadata.get('is_subtask')) or
+           any(suffix in test.platform for suffix in ['_fac_token', '_fgt_token', '_ftc_token_on_fac', '_ftc_token_on_fgt'])
+    ]
+
+    # Use subtasks if available, otherwise use all tests
+    target_tests = subtask_tests if subtask_tests else tests
+
+    if not target_tests:
+        logger.debug(f"Cycle {cycle.version} ({cycle.project}): No target tests found")
+        return
+
+    # Get status values - handle both enum and string values
+    def get_status_value(t):
+        """Get status as string, handling both enum and string values"""
+        if hasattr(t.status, 'value'):
+            return t.status.value  # For enum types like TestStatus
+        return str(t.status)  # For string values
+
+    statuses = [get_status_value(t) for t in target_tests]
+
+    # Count by status
+    total = len(target_tests)
+    completed = sum(1 for s in statuses if s in ['passed', 'failed', 'skipped', 'error'])
+    running = sum(1 for s in statuses if s == 'running')
+
+    # Determine cycle status (only running/completed/pending, no 'failed')
+    if running > 0:
+        new_status = 'running'
+    elif completed == total and total > 0:
+        new_status = 'completed'
+    else:
+        new_status = 'pending'
+
+    logger.debug(f"Cycle {cycle.version} ({cycle.project}): total={total}, completed={completed}, running={running}, new_status={new_status}, statuses={statuses}")
+
+    # Update if changed
+    if cycle.status != new_status:
+        cycle.status = new_status
+        if new_status == 'completed':
+            cycle.completed_at = datetime.utcnow()
+        db.commit()
+        logger.info(f"Updated cycle {cycle.version} ({cycle.project}) status from {cycle.status} to {new_status} (total={total}, completed={completed}, running={running}, statuses={statuses})")
+    else:
+        logger.debug(f"Cycle {cycle.version} ({cycle.project}): status unchanged ({new_status})")
+
+
 def update_cycle_status(build_number: str, db: Session):
     """
     Update ReleaseTestCycle status based on associated test results.
-    - If all tests are complete (passed/failed), mark cycle as 'completed'
-    - If any test is running, mark cycle as 'running'
+    Only considers sub-task tests (not parent pipeline tests) to avoid double counting.
+    - If all sub-tasks are complete (passed/failed), mark cycle as 'completed' or 'failed'
+    - If any sub-task is running, mark cycle as 'running'
     - Otherwise keep as 'pending'
     """
     # Get the version and project from the test record
@@ -2016,35 +2132,49 @@ def update_cycle_status(build_number: str, db: Session):
         return
 
     # Get all tests for this cycle
-    tests = db.query(ReleaseCandidateTest).filter(
+    all_tests = db.query(ReleaseCandidateTest).filter(
         ReleaseCandidateTest.version == version,
         ReleaseCandidateTest.project == project
     ).all()
 
+    if not all_tests:
+        return
+
+    # Filter to only sub-tasks (tests with is_subtask metadata or platform contains token patterns)
+    subtask_tests = [
+        test for test in all_tests
+        if (test.test_metadata and test.test_metadata.get('is_subtask')) or
+           any(suffix in test.platform for suffix in ['_fac_token', '_fgt_token', '_ftc_token_on_fac', '_ftc_token_on_fgt'])
+    ]
+
+    # Use subtasks if available, otherwise use all tests (for manual uploads)
+    tests = subtask_tests if subtask_tests else all_tests
+
     if not tests:
         return
 
+    # Convert status to string for comparison (handles both enum and string values)
+    statuses = [str(t.status) for t in tests]
+
     # Count by status
     total = len(tests)
-    completed = sum(1 for t in tests if t.status in ['passed', 'failed', 'skipped', 'error'])
-    running = sum(1 for t in tests if t.status == 'running')
-    failed = sum(1 for t in tests if t.status in ['failed', 'error'])
+    running = sum(1 for s in statuses if s == 'running')
+    completed = sum(1 for s in statuses if s in ['passed', 'failed', 'skipped', 'error'])
 
-    # Determine cycle status
-    if completed == total:
-        # All tests completed
-        new_status = 'failed' if failed > 0 else 'completed'
-    elif running > 0:
-        # Some tests still running
+    # Determine cycle status (only running/completed/pending, no 'failed')
+    if running > 0:
         new_status = 'running'
+    elif completed > 0 and completed == total:
+        # All tests completed
+        new_status = 'completed'
     else:
-        # All tests pending
+        # No tests completed yet
         new_status = 'pending'
 
     # Update if changed
     if cycle.status != new_status:
         cycle.status = new_status
-        if new_status in ['completed', 'failed']:
+        if new_status == 'completed':
             cycle.completed_at = datetime.utcnow()
         db.commit()
         logger.info(f"Updated cycle {version} ({project}) status to {new_status}")
@@ -2360,3 +2490,99 @@ async def stream_release_tests(
 
     tests = query.all()
     return [test.to_dict() for test in tests]
+
+
+# ============== Release Test Configuration APIs ==============
+
+@router.get("/release-test-config", response_model=ReleaseTestConfig)
+async def get_release_test_config(db: Session = Depends(get_db)):
+    """
+    Get release test configuration (allowed versions and build numbers).
+    Returns config with versions, build_numbers, disabled_versions, and version_build_numbers.
+    """
+    config = db.query(AdminConfig).filter(
+        AdminConfig.config_key == "release_test_config"
+    ).first()
+
+    if config and config.config_value:
+        config_value = config.config_value
+        # Parse version_build_numbers if exists
+        version_build_numbers_data = config_value.get("version_build_numbers", [])
+        version_build_numbers = [
+            VersionBuildNumber(**item) if isinstance(item, dict) else item
+            for item in version_build_numbers_data
+        ] if version_build_numbers_data else []
+
+        return ReleaseTestConfig(
+            versions=config_value.get("versions", []),
+            build_numbers=config_value.get("build_numbers", []),
+            disabled_versions=config_value.get("disabled_versions", []),
+            version_build_numbers=version_build_numbers
+        )
+
+    # Return empty config if not set
+    return ReleaseTestConfig()
+
+
+@router.post("/release-test-config", response_model=ReleaseTestConfig)
+async def set_release_test_config(
+    config_data: ReleaseTestConfig,
+    db: Session = Depends(get_db)
+):
+    """
+    Set release test configuration (allowed versions and build numbers).
+    Admin only.
+    """
+    existing_config = db.query(AdminConfig).filter(
+        AdminConfig.config_key == "release_test_config"
+    ).first()
+
+    # Parse version_build_numbers
+    version_build_numbers_data = []
+    if config_data.version_build_numbers:
+        for item in config_data.version_build_numbers:
+            if isinstance(item, VersionBuildNumber):
+                version_build_numbers_data.append(item.dict())
+            else:
+                version_build_numbers_data.append(item)
+
+    config_value = {
+        "versions": config_data.versions,
+        "build_numbers": config_data.build_numbers,
+        "disabled_versions": config_data.disabled_versions,
+        "version_build_numbers": version_build_numbers_data
+    }
+
+    if existing_config:
+        existing_config.config_value = config_value
+        db.commit()
+        db.refresh(existing_config)
+        return ReleaseTestConfig(**config_value)
+    else:
+        new_config = AdminConfig(
+            config_key="release_test_config",
+            config_value=config_value,
+            description="Release test configuration - allowed versions and build numbers"
+        )
+        db.add(new_config)
+        db.commit()
+        db.refresh(new_config)
+        return ReleaseTestConfig(**config_value)
+
+
+@router.delete("/release-test-config", response_model=dict)
+async def delete_release_test_config(db: Session = Depends(get_db)):
+    """
+    Delete release test configuration.
+    Admin only.
+    """
+    config = db.query(AdminConfig).filter(
+        AdminConfig.config_key == "release_test_config"
+    ).first()
+
+    if config:
+        db.delete(config)
+        db.commit()
+        return {"message": "Release test configuration deleted"}
+
+    raise HTTPException(status_code=404, detail="Configuration not found")

@@ -13,6 +13,7 @@ import {
   SettingOutlined,
   KeyOutlined,
   CloudOutlined,
+  GlobalOutlined,
 } from '@ant-design/icons';
 import './App.css';
 import Dashboard from './components/Dashboard';
@@ -27,7 +28,7 @@ import ReleaseTestsByVersion from './components/ReleaseTestsByVersion';
 import ReleaseTestDetails from './components/ReleaseTestDetails';
 import UnifiedWarehouse from './components/UnifiedWarehouse';
 import AdminConfig from './components/AdminConfig';
-import DeviceHub from './components/DeviceHub';
+import AdminPortal from './components/AdminPortal';
 import { API_URL, APP_VERSION, COPYRIGHT_YEAR } from './constants';
 
 const { Content, Footer, Sider } = Layout;
@@ -43,9 +44,13 @@ function MenuContent({ collapsed, settings }) {
     { key: '/files', icon: <FileOutlined />, label: 'Files', path: '/files' },
     { key: '/warehouse', icon: <KeyOutlined />, label: 'Warehouse', path: '/warehouse' },
     { key: '/release-tests', icon: <AppstoreOutlined />, label: 'Release Tests', path: '/release-tests' },
-    { key: '/device-hub', icon: <CloudOutlined />, label: 'DeviceHub', path: '/device-hub' },
     { key: '/mantis', icon: <BugOutlined />, label: 'Mantis', path: '/mantis' },
     { key: '/settings', icon: <SettingOutlined />, label: 'Settings', path: '/settings' },
+  ];
+
+  // External links
+  const externalLinks = [
+    { key: 'devicehub', icon: <CloudOutlined />, label: 'DeviceHub', url: 'https://devicehub.qa.fortinet-us.com' },
   ];
 
   const integrations = [];
@@ -89,6 +94,12 @@ function MenuContent({ collapsed, settings }) {
         {menuItems.map(item => (
           <Menu.Item key={item.key} icon={item.icon}>
             <Link to={item.path}>{item.label}</Link>
+          </Menu.Item>
+        ))}
+        {/* External Links */}
+        {externalLinks.map(item => (
+          <Menu.Item key={item.key} icon={item.icon}>
+            <a href={item.url} target="_blank" rel="noopener noreferrer">{item.label}</a>
           </Menu.Item>
         ))}
       </Menu>
@@ -188,8 +199,9 @@ function App() {
               <Route path="/release-tests" element={<ReleaseTestsByVersion />} />
               <Route path="/release-tests/details/:platform" element={<ReleaseTestDetails />} />
               <Route path="/release-tests/details/:platform/:version" element={<ReleaseTestDetails />} />
-              <Route path="/device-hub" element={<DeviceHub />} />
-              <Route path="/admin" element={<AdminConfig />} />
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/admin" element={<AdminPortal />} />
+              <Route path="/admin-config" element={<AdminConfig />} />
               <Route path="/settings" element={<Settings onSettingsChange={setSettings} initialSettings={settings} />} />
             </Routes>
           </Content>

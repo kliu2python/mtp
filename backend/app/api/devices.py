@@ -13,8 +13,9 @@ from app.core.database import get_db
 from app.core.config import settings
 from app.models.device import TestDevice, DeviceStatus, DeviceType
 from app.services.device_manager import device_manager
-from app.services.device_stream_service import device_stream_service
 from pydantic import BaseModel
+
+# DeviceHub stream service removed - now accessed via external link
 
 logger = logging.getLogger(__name__)
 
@@ -242,59 +243,16 @@ async def check_device_health(device_id: str, db: Session = Depends(get_db)):
         }
 
 
-@router.get("/stream/list")
-async def get_stream_devices():
-    """Get devices from stream cache (read-only)"""
-    logger.info("Stream list endpoint called")
-
-    devices = await device_stream_service.get_cached_devices()
-    logger.info(f"Retrieved {len(devices)} devices from cache")
-
-    normalized = []
-    for device in devices:
-        info = device.get("info", {})
-
-        is_available = device.get(
-            "available", False) and not device.get("in_use", False)
-        status = "available" if is_available else "unavailable"
-
-        normalized.append({
-            "id": info.get("udid", ""),
-            "name": info.get("name", "Unknown Device"),
-            "platform": "iOS" if info.get("os") == "ios" else "Android",
-            "os_version": info.get("os_version", "Unknown"),
-            "status": status,
-            "type": info.get("device_type", "real"),
-            "host": info.get("host", ""),
-            "port": "",
-        })
-
-    return {
-        "devices": normalized,
-        "summary": {
-            "total": len(normalized),
-            "available": sum(1 for d in normalized if d["status"] == "available"),
-            "unavailable": sum(1 for d in normalized if d["status"] != "available"),
-        },
-    }
+# Stream endpoints removed - DeviceHub now accessed via external link (https://devicehub.qa.fortinet-us.com)
 
 
-@router.get("/stream/cache-status")
-async def get_cache_status():
-    """Get stream cache health information"""
-    return device_stream_service.get_cache_status()
 
 
 @router.get("/stats/summary")
 async def get_device_stats(db: Session = Depends(get_db)):
-    """Get device statistics (stream first, DB fallback)"""
+    """Get device statistics from database"""
 
-    stream_summary = await device_stream_service.get_device_summary()
-
-    if stream_summary.get("total", 0) > 0:
-        return stream_summary
-
-    # ---------- DB fallback ----------
+    # Get stats from database
     total = db.query(TestDevice).count()
     available = db.query(TestDevice).filter(
         TestDevice.status == DeviceStatus.AVAILABLE
@@ -327,12 +285,4 @@ async def get_device_stats(db: Session = Depends(get_db)):
 
 
 # -------- DEBUG / LOCAL ONLY --------
-
-@router.post("/stream/populate-sample")
-async def populate_sample_data():
-    """Populate stream cache with sample data (debug only)"""
-    devices = device_stream_service.populate_with_sample_data()
-    return {
-        "success": True,
-        "count": len(devices),
-    }
+# Stream populate endpoint removed - DeviceHub now accessed via external link

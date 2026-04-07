@@ -13,11 +13,126 @@ const ReleaseTestsByVersion = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [creating, setCreating] = useState(false);
   const [form] = Form.useForm();
+  const [releaseTestConfig, setReleaseTestConfig] = useState({
+    versions: [],
+    build_numbers: [],
+    version_build_numbers: []
+  });
+  const [configLoading, setConfigLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Get available build numbers based on selected version and platform
+  const getAvailableBuildNumbers = (version, platform) => {
+    const versionRanges = releaseTestConfig.version_build_numbers || [];
+
+    if (platform === 'android') {
+      const range = versionRanges.find(r => r.version === version && r.platform === 'android');
+      if (!range) return [];
+
+      const min = range.min_build_number || '';
+      const max = range.max_build_number || '';
+      if (!min || !max) return [];
+
+      // Generate build numbers between min and max
+      const minNum = parseInt(min, 10);
+      const maxNum = parseInt(max, 10);
+      const result = [];
+      for (let i = minNum; i <= maxNum; i++) {
+        result.push(i.toString().padStart(4, '0'));
+      }
+      return result;
+    } else if (platform === 'ios') {
+      const range = versionRanges.find(r => r.version === version && r.platform === 'ios');
+      if (!range) return [];
+
+      // iOS uses the same min_build_number and max_build_number fields
+      const min = range.min_build_number || '';
+      const max = range.max_build_number || '';
+      if (!min || !max) return [];
+
+      const minNum = parseInt(min, 10);
+      const maxNum = parseInt(max, 10);
+      const result = [];
+      for (let i = minNum; i <= maxNum; i++) {
+        result.push(i.toString().padStart(4, '0'));
+      }
+      return result;
+    }
+
+    return [];
+  };
+
+  // Get version display label (e.g., "6.4.0" from "android_6.4.0")
+  const getVersionLabel = (versionStr) => {
+    // Remove platform prefix (android_/ios_) and return just the version number
+    return versionStr.replace(/^(android_|ios_)/, '');
+  };
+
+  // Default versions when config is not set
+  const defaultVersions = [
+    'android_15', 'android_14', 'android_13', 'android_12', 'android_11', 'android_10',
+    'ios_26', 'ios_18', 'ios_17', 'ios_16', 'ios_15'
+  ];
+
+  // Fetch release test config
+  const fetchReleaseTestConfig = async () => {
+    try {
+      setConfigLoading(true);
+      const response = await axios.get(`${API_URL}/api/release-test-config`);
+      const config = response.data;
+      console.log('Release test config loaded:', config);
+      setReleaseTestConfig({
+        versions: config.versions || [],
+        build_numbers: config.build_numbers || [],
+        version_build_numbers: config.version_build_numbers || []
+      });
+    } catch (error) {
+      console.error('Failed to fetch release test config:', error);
+      setReleaseTestConfig({ versions: [], build_numbers: [], version_build_numbers: [] });
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
+  // Get unique version numbers from config (remove duplicates like android_6.4.0 and ios_6.4.0)
+  const getVersionOptions = () => {
+    // First, try to get versions from version_build_numbers config
+    const versionBuildNumbers = releaseTestConfig.version_build_numbers || [];
+    if (versionBuildNumbers.length > 0) {
+      // Extract unique version numbers from version_build_numbers
+      const versionSet = new Set();
+      versionBuildNumbers.forEach(vbn => {
+        if (vbn.version) {
+          versionSet.add(vbn.version);
+        }
+      });
+      return Array.from(versionSet).map(v => ({ label: v, value: v })).sort((a, b) => b.label.localeCompare(a.label));
+    }
+
+    // Fall back to versions from config
+    const versionsToUse = releaseTestConfig.versions && releaseTestConfig.versions.length > 0
+      ? releaseTestConfig.versions
+      : defaultVersions;
+
+    const versionSet = new Set();
+    const options = [];
+
+    versionsToUse.forEach(v => {
+      const versionNum = getVersionLabel(v);
+      if (!versionSet.has(versionNum)) {
+        versionSet.add(versionNum);
+        options.push({ label: versionNum, value: versionNum });
+      }
+    });
+
+    return options.sort((a, b) => b.label.localeCompare(a.label));
+  };
 
   useEffect(() => {
     fetchTestCycles();
+    fetchReleaseTestConfig();
   }, []);
+
 
   const fetchTestCycles = async () => {
     try {
@@ -30,19 +145,32 @@ const ReleaseTestsByVersion = () => {
         try {
           const testsResponse = await axios.get(`${API_URL}/api/release-cycles/${cycle.id}/tests`);
           const tests = testsResponse.data;
-          const totalTests = tests.length;
+
+          // Count passed and failed (including broken) tests
           const passedTests = tests.filter(t => t.status === 'passed').length;
-          const failedTests = tests.filter(t => t.status === 'failed' || t.status === 'error').length;
+          const failedTests = tests.filter(t => t.status === 'failed' || t.status === 'error' || t.status === 'broken').length;
+          const totalTests = tests.length;
+
+          // Calculate Total Test Cases (sum of passed + failed + broken + skipped)
+          let totalTestCases = 0;
+          tests.forEach(t => {
+            totalTestCases += (t.passed_count || 0) + (t.failed_count || 0) + (t.broken_count || 0) + (t.skipped_count || 0);
+          });
+
+          // Calculate unique build numbers for this cycle + platform
+          const uniqueBuildNumbers = new Set(tests.map(t => t.build_number)).size;
 
           return {
             ...cycle,
             totalTests,
             passedTests,
             failedTests,
-            passRate: totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0
+            passRate: totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0,
+            totalTestCases,
+            uniqueBuilds: uniqueBuildNumbers
           };
         } catch (error) {
-          return { ...cycle, totalTests: 0, passedTests: 0, failedTests: 0, passRate: 0 };
+          return { ...cycle, totalTests: 0, passedTests: 0, failedTests: 0, passRate: 0, totalTestCases: 0, uniqueBuilds: 0 };
         }
       }));
 
@@ -137,10 +265,17 @@ const ReleaseTestsByVersion = () => {
       render: (status) => <Tag color={getStatusColor(status)}>{status?.toUpperCase()}</Tag>,
     },
     {
-      title: 'Total Tests',
-      dataIndex: 'totalTests',
-      key: 'totalTests',
-      sorter: (a, b) => a.totalTests - b.totalTests,
+      title: 'Total Builds',
+      dataIndex: 'uniqueBuilds',
+      key: 'uniqueBuilds',
+      sorter: (a, b) => a.uniqueBuilds - b.uniqueBuilds,
+      render: (builds) => <Tag color="blue">{builds}</Tag>,
+    },
+    {
+      title: 'Total Test Cases',
+      key: 'totalTestCases',
+      render: (_, record) => <Tag color="green">{record.totalTestCases || 0}</Tag>,
+      sorter: (a, b) => (a.totalTestCases || 0) - (b.totalTestCases || 0),
     },
     {
       title: 'Passed Tests',
@@ -240,7 +375,7 @@ const ReleaseTestsByVersion = () => {
           onFinish={handleCreateCycle}
           initialValues={{
             project: 'ftm',
-            platform: 'all'
+            platform: 'android'
           }}
         >
           <Row gutter={16}>
@@ -248,9 +383,17 @@ const ReleaseTestsByVersion = () => {
               <Form.Item
                 label="Version"
                 name="version"
-                rules={[{ required: true, message: 'Please enter version' }]}
+                rules={[{ required: true, message: 'Please select version' }]}
               >
-                <Input placeholder="e.g., 6.4.0" />
+                <Select
+                  placeholder={configLoading ? "Loading..." : "Select version"}
+                  loading={configLoading}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={getVersionOptions()}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -276,7 +419,6 @@ const ReleaseTestsByVersion = () => {
                 rules={[{ required: true, message: 'Please select platform' }]}
               >
                 <Select>
-                  <Option value="all">All</Option>
                   <Option value="android">Android</Option>
                   <Option value="ios">iOS</Option>
                 </Select>
@@ -291,6 +433,7 @@ const ReleaseTestsByVersion = () => {
               </Form.Item>
             </Col>
           </Row>
+
         </Form>
       </Modal>
     </div>

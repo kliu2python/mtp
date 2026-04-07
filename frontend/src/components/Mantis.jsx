@@ -281,7 +281,7 @@ const Mantis = () => {
           )}
         </Space>
       ),
-      width: 100,
+      width: 120,
     },
     {
       title: 'Summary',
@@ -289,13 +289,15 @@ const Mantis = () => {
       key: 'summary',
       sorter: true,
       ellipsis: true,
+      width: 300,
     },
     {
       title: 'Category',
       dataIndex: 'category',
       key: 'category',
       sorter: true,
-      width: 120,
+      width: 200,
+      ellipsis: true,
     },
     {
       title: 'Status',
@@ -307,7 +309,7 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 100,
+      width: 90,
     },
     {
       title: 'Priority',
@@ -319,7 +321,7 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 100,
+      width: 90,
     },
     {
       title: 'Severity',
@@ -331,7 +333,7 @@ const Mantis = () => {
           {(value || 'Unknown').toUpperCase()}
         </Tag>
       ),
-      width: 100,
+      width: 90,
     },
     {
       title: 'Submitted',
@@ -348,47 +350,29 @@ const Mantis = () => {
       <div
         style={{
           display: 'grid',
-          gap: 16,
-          gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+          gap: 8,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
         }}
       >
         {summaryCards.map((item) => (
-          <Card key={item.label}>
-            <Space direction="vertical" size={0}>
-              <Text type="secondary">{item.label}</Text>
-              <Title level={3} style={{ margin: 0 }}>{item.value}</Title>
-            </Space>
+          <Card key={item.label} size="small">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>{item.label}</Text>
+              <Title level={4} style={{ margin: 0, minWidth: 30, textAlign: 'right' }}>{item.value}</Title>
+            </div>
           </Card>
         ))}
       </div>
 
-      <Card
-        title={
-          <Space>
-            <BugOutlined />
-            <span>Mantis Issues</span>
-          </Space>
-        }
-        extra={
-          <Space align="center" size={16}>
-            <Space align="center" size={8}>
-              <ClockCircleOutlined />
-              <Text type="secondary">
-                Latest update: {formatDate(lastUpdated)}
-              </Text>
-            </Space>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading}>
-                Refresh
-              </Button>
-              <Button icon={<CloseCircleOutlined />} onClick={handleResetFilters} disabled={loading}>
-                Reset Filters
-              </Button>
-            </Space>
-          </Space>
-        }
-      >
+      <Card>
         <Space style={{ marginBottom: 16 }} wrap>
+          <Button icon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading}>
+            Refresh
+          </Button>
+          <Button icon={<CloseCircleOutlined />} onClick={handleResetFilters} disabled={loading}>
+            Reset Filters
+          </Button>
+
           <Input.Search
             placeholder="Search summary, description, or category"
             allowClear
@@ -472,13 +456,20 @@ const Mantis = () => {
             total: pagination.total,
             showSizeChanger: true,
             pageSizeOptions: ['5', '10', '15', '20'],
+            showTotal: (total, range) => (
+              <Space>
+                <ClockCircleOutlined />
+                <Text type="secondary">
+                  Latest update: {formatDate(lastUpdated)}
+                </Text>
+              </Space>
+            ),
           }}
           onChange={handleTableChange}
           onRow={(record) => ({
             onClick: () => setSelectedIssue(record),
           })}
         />
-
       </Card>
 
       <DetailDrawer issue={selectedIssue} onClose={() => setSelectedIssue(null)} />

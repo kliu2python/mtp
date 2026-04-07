@@ -29,6 +29,7 @@ from app.api import (
     release_tests,
     test_templates,
     admin_config_api,
+    user_management,
 )
 from app.api.warehouse import router as warehouse_router
 from app.services.websocket_manager import manager
@@ -166,10 +167,9 @@ async def lifespan(app: FastAPI):
 
     # Start background services
     from app.services.device_monitor import device_monitor
-    from app.services.device_stream_service import device_stream_service
     from app.services.vm_monitor import vm_monitor
 
-    device_stream_service.run_background()
+    # device_stream_service removed - DeviceHub now accessed via external link
     device_monitor.run_background()
     # asyncio.create_task(vm_monitor.start())
 
@@ -222,6 +222,7 @@ app.include_router(test_templates.router, prefix="/api",
                    tags=["Test Templates"])
 app.include_router(warehouse_router, prefix="/api/warehouse", tags=["Warehouse"])
 app.include_router(admin_config_api.router, prefix="/api", tags=["Admin Config"])
+app.include_router(user_management.router, prefix="/api", tags=["User Management"])
 
 # Mount uploaded files for direct download links
 app.mount("/uploads", StaticFiles(directory=str(files.UPLOAD_DIR)), name="uploads")

